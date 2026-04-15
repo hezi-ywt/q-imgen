@@ -2,6 +2,8 @@
 
 Atomic nanobanana CLI with channel-based endpoint routing.
 
+[中文说明](README.zh-CN.md)
+
 One primitive, many channels. Each channel is a complete route to an image generation endpoint — protocol + base_url + api_key + model. Switch between Google-native Gemini and OpenAI-compatible gateways without changing code or env vars.
 
 ```
