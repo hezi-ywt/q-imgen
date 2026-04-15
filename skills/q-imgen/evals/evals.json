@@ -1,0 +1,23 @@
+{
+  "skill_name": "q-imgen",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我生成一张穿红色和服的动漫少女，日式庭院背景",
+      "expected_output": "选择合适引擎并调用 q-imgen midjourney imagine 或 q-imgen nanobanana generate，读取底层 engine 返回的结果",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "把这张图 input.jpg 里的衣服改成蓝色",
+      "expected_output": "调用 q-imgen nanobanana generate 并传入 --images input.jpg，读取底层 engine 的编辑结果",
+      "files": ["input.jpg"]
+    },
+    {
+      "id": 3,
+      "prompt": "用 Gemini 批量生成 3 张不同场景的动漫图：银发精灵、猫耳男孩、魔法少女",
+      "expected_output": "如果上层需要可自行创建 batch JSON 文件，然后调用 q-imgen nanobanana batch 并读取底层 engine 返回结果",
+      "files": []
+    }
+  ]
+}
