@@ -1,0 +1,41 @@
+{
+  "skill_name": "q-imgen",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "帮我生成一张穿红色和服的动漫少女,日式庭院背景",
+      "expected_output": "调用 q-imgen generate '穿红色和服的动漫少女,日式庭院背景' -o <output_dir>(使用默认渠道),读取 stdout JSON 中的 images 字段拿到生成的文件路径",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "把这张图 input.jpg 里的衣服改成蓝色",
+      "expected_output": "调用 q-imgen generate '把衣服改成蓝色' --image input.jpg -o <output_dir>,从 stdout JSON 的 images 字段拿到编辑后的图片",
+      "files": ["input.jpg"]
+    },
+    {
+      "id": 3,
+      "prompt": "用另一个渠道 google 生成一张猫耳男孩看星空的图",
+      "expected_output": "先检查渠道是否存在(q-imgen channel list);如果 google 渠道存在,调用 q-imgen generate '猫耳男孩看星空' --channel google -o <output_dir>;如果不存在,通过 stderr 的引导告知用户先 q-imgen channel add google --protocol ...",
+      "files": []
+    },
+    {
+      "id": 4,
+      "prompt": "批量生成 3 张不同场景的动漫图:银发精灵、猫耳男孩、魔法少女",
+      "expected_output": "创建 tasks.json(数组包含 3 个对象,各自有 prompt 字段),调用 q-imgen batch tasks.json -o <output_dir> --delay 1.0,从 stdout JSON 的 results 数组逐条读结果;注意 status 可能是 ok 或 partial",
+      "files": []
+    },
+    {
+      "id": 5,
+      "prompt": "我想把 A.png 和 B.png 融合成一张图,风格参考 A",
+      "expected_output": "调用 q-imgen generate '融合两张图的内容,风格以第一张为主' --image A.png --image B.png -o <output_dir>;多图通过重复 --image 传递",
+      "files": ["A.png", "B.png"]
+    },
+    {
+      "id": 6,
+      "prompt": "生成失败了,返回的 stderr 里有 401",
+      "expected_output": "解析 stderr 的 [q-imgen] ... 前缀判定是 API 认证失败,提示用户检查当前渠道的 api_key:q-imgen channel show 查看当前默认渠道,必要时 q-imgen channel add <name> --force 覆盖",
+      "files": []
+    }
+  ]
+}
