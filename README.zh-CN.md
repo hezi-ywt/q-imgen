@@ -174,12 +174,18 @@ images[0].save("output.png")
 
 **CLI 还是库？** CLI 适合 agent 调用、单次生成、batch 任务、shell 管道。库适合需要在生成前后处理图片、串联多次生成结果、或自定义循环逻辑的 Python 脚本。
 
-## 设计原则
+## 设计哲学
 
-- **原子原语，不做框架**。`generate` 和 `batch` 各自只做一件事；prompt 优化、角色一致性、工作流编排都属于上层调用方。
-- **不做启发式路由**。调用方显式选择 channel。像“质量用 A，速度用 B”这样的策略应该放在上层 skill 或脚本里，而不是 q-imgen 里。
-- **在关键位置保持 agent-safe I/O**：`generate` / `batch` 的 stdout 是数据，stderr 是诊断，退出码是 0/1。channel 管理命令保持人类可读，只有 `channel show` 返回 JSON。
-- **API key 安全**：所有错误消息都会清洗 live key 和 `Bearer` token，再向外暴露。
+q-imgen 选择做一个可靠的积木块，把搭积木的自由留给使用它的人。
+
+- **原子原语，不做框架**。只做一件事：发 prompt、带参考图、拿回图片。批量、循环、prompt 优化、风格策略、工作流编排全部属于调用方（agent 或脚本），q-imgen 不碰。
+- **两个入口，同一个内核**。CLI 面向 agent 和 shell（stdout JSON、exit 0/1），Python 库面向脚本（返回 `PIL.Image`、失败抛异常）。选择权在调用方；两者共享同一套协议 client。
+- **channel 是唯一的路由抽象**。不做启发式选择，不做 env var 优先级链。一个 `channels.json` 就是全部真相，调用方显式传 `--channel`。
+- **两个协议不统一**。Gemini 和 OpenAI 的 payload 形状根本不兼容，强行抽象只会造成沉默失真。两个 client 独立演化，共同点只有”返回结果或抛异常”这一个接口。
+- **观察可以，编排不行**。history 日志是唯一允许的”状态”——它只记录做过什么，不决定下一步做什么。而且是 best-effort 的：日志失败不影响生图。
+- **在关键位置保持 agent-safe I/O**。`generate` / `batch` 的 stdout 是数据，stderr 是诊断，退出码是 0/1。channel 管理命令保持人类可读，只有 `channel show` 返回 JSON。
+- **API key 安全**。所有错误消息都会清洗 live key 和 `Bearer` token，再向外暴露。
+- **Git 原生更新**。不走 PyPI。skill 文件、库代码、CLI 元数据都在同一个仓库里。`git pull` 即时更新 skill 和代码，只有 `pyproject.toml` 变了才需要 `pip install -e .`。
 
 ## 项目结构
 

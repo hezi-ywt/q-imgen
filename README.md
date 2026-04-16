@@ -176,10 +176,16 @@ images[0].save("output.png")
 
 ## Design philosophy
 
-- **Atomic primitive**, not a framework. `generate` and `batch` do one thing each; higher-level orchestration (prompt engineering, character consistency, workflow composition) belongs to the caller.
-- **No heuristic routing.** The caller picks a channel explicitly. "Use A for quality, B for speed" logic lives in the calling skill or script, never in q-imgen.
-- **Agent-safe I/O where it matters**: `generate` / `batch` stdout = data, stderr = diagnostics, exit code = 0/1. Channel-management commands stay human-readable except `channel show`, which returns JSON.
-- **API key safety**: all error messages scrub live keys and `Bearer` tokens before surfacing them.
+q-imgen chooses to be a reliable building block, leaving the freedom of assembly to whoever uses it.
+
+- **Atomic primitive, not a framework.** One job: send a prompt with reference images, get back pictures. Batching, loops, prompt optimization, style strategy, and workflow orchestration all belong to the caller — agent or script — not to q-imgen.
+- **Two entry points, one core.** CLI faces agents and shell (stdout JSON, exit 0/1). Python library faces scripts (returns `PIL.Image`, raises on failure). The caller decides which fits; both share the same protocol clients underneath.
+- **Channels are the only routing abstraction.** No heuristic selection, no env-var priority chains. One `channels.json` is the single source of truth; the caller passes `--channel` explicitly.
+- **Two protocols, intentionally not unified.** Gemini and OpenAI payload shapes are genuinely incompatible. Forcing an abstraction layer would cause silent data loss. The two clients evolve independently; their only shared contract is "return results or raise an exception."
+- **Observation is allowed, orchestration is not.** The history log is the only "state" q-imgen keeps — it records what happened, never decides what to do next. And it's best-effort: a logging failure never blocks image generation.
+- **Agent-safe I/O where it matters.** `generate` / `batch` stdout = data, stderr = diagnostics, exit code = 0/1. Channel-management commands stay human-readable except `channel show`, which returns JSON.
+- **API key safety.** All error messages scrub live keys and `Bearer` tokens before surfacing them.
+- **Git-native updates.** No PyPI publishing. Skill files, library code, and CLI metadata all live in the same repo. `git pull` updates skill and code immediately; `pip install -e .` is only needed when `pyproject.toml` changes.
 
 ## Project layout
 
