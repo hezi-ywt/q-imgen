@@ -7,19 +7,22 @@ Handles both authentication styles the same endpoint accepts:
 - ``generativelanguage.googleapis.com`` → ``?key=API_KEY`` query param
 - Proxy gateways → ``Authorization: Bearer <key>`` header
 
-Absorbed from ``/Users/ywt/Documents/动漫图像设计/nanobanana/client.py`` so
-q-imgen is self-contained and does not depend on a loose local package.
+Absorbed from the original nanobanana client so q-imgen is self-contained
+and does not depend on a loose local package.
 """
 
 from __future__ import annotations
 
 import base64
+import io
 import json
 import time
 import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any
+
+from PIL import Image as PILImage
 
 _TIMEOUT_SECONDS = 300
 _MAX_RETRIES = 3
@@ -50,7 +53,26 @@ def _mime_for(path: Path) -> str:
     return mime
 
 
-def _load_image_inline(path: str | Path) -> dict[str, Any]:
+def _pil_to_inline(image: PILImage.Image, mime: str = "image/png") -> dict[str, Any]:
+    """Encode a PIL Image as a Gemini ``inline_data`` part."""
+    fmt = "PNG" if mime == "image/png" else "JPEG" if mime in ("image/jpeg",) else "WEBP"
+    buf = io.BytesIO()
+    image.save(buf, format=fmt)
+    return {
+        "inline_data": {
+            "mime_type": mime,
+            "data": base64.b64encode(buf.getvalue()).decode("utf-8"),
+        }
+    }
+
+
+def _load_image_inline(path: str | Path | PILImage.Image) -> dict[str, Any]:
+    if isinstance(path, PILImage.Image):
+        fmt = (path.format or "PNG").upper()
+        mime = {"PNG": "image/png", "JPEG": "image/jpeg", "WEBP": "image/webp"}.get(
+            fmt, "image/png"
+        )
+        return _pil_to_inline(path, mime)
     p = Path(path)
     if not p.exists():
         raise GeminiError(f"reference image not found: {path}")
@@ -71,7 +93,12 @@ def _sanitize_error(message: str, api_key: str) -> str:
 
 
 def _post_json(
-    url: str, payload: dict, api_key: str, base_url: str, timeout: float
+    url: str,
+    payload: dict,
+    api_key: str,
+    base_url: str,
+    timeout: float,
+    max_retries: int = _MAX_RETRIES,
 ) -> dict:
     payload_bytes = json.dumps(payload).encode("utf-8")
 
@@ -93,7 +120,7 @@ def _post_json(
     )
 
     last_error: str | None = None
-    for attempt in range(_MAX_RETRIES + 1):
+    for attempt in range(max_retries + 1):
         if attempt > 0:
             time.sleep(_RETRY_DELAY_SECONDS)
 
@@ -130,10 +157,11 @@ def generate(
     base_url: str,
     api_key: str,
     model: str,
-    reference_images: list[str] | None = None,
+    reference_images: list[str | Path | PILImage.Image] | None = None,
     aspect_ratio: str = "3:4",
     image_size: str | None = None,
     timeout: float = _TIMEOUT_SECONDS,
+    max_retries: int = _MAX_RETRIES,
 ) -> dict:
     """One-shot generation. Returns the raw Gemini API response dict.
 
@@ -160,7 +188,43 @@ def generate(
     }
 
     url = f"{base_url.rstrip('/')}/models/{model}:generateContent"
-    return _post_json(url, payload, api_key, base_url, timeout)
+    return _post_json(url, payload, api_key, base_url, timeout, max_retries)
+
+
+def generate_images(
+    *,
+    prompt: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    reference_images: list[str | Path | PILImage.Image] | None = None,
+    aspect_ratio: str = "3:4",
+    image_size: str | None = None,
+    timeout: float = _TIMEOUT_SECONDS,
+    max_retries: int = _MAX_RETRIES,
+) -> list[PILImage.Image]:
+    """Generate images and return as PIL Image objects (no disk I/O).
+
+    Raises ``GeminiError`` on failure.
+    """
+    response = generate(
+        prompt=prompt,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        reference_images=reference_images,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+        timeout=timeout,
+        max_retries=max_retries,
+    )
+    raw_images, _ = extract_images(response)
+    if not raw_images:
+        raise GeminiError("API returned no images")
+    return [
+        PILImage.open(io.BytesIO(base64.b64decode(img["data"])))
+        for img in raw_images
+    ]
 
 
 def extract_images(response: dict) -> tuple[list[dict], list[str]]:

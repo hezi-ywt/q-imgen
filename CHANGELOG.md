@@ -2,6 +2,24 @@
 
 All notable changes to `q-imgen` will be documented in this file.
 
+## 0.4.0 - 2026-04-16
+
+### Added
+
+- **Python 库 API**:`from q_imgen import generate` 返回 `list[PIL.Image.Image]`，不保存文件、不写 history、不打印。脚本工作流可以直接调用，自己控制预处理/后处理/循环逻辑。
+- **`generate_images()`**:两个协议 client（`gemini_client` / `openai_client`）各新增 `generate_images()` 函数，返回 `list[PIL.Image.Image]`，供 `api.generate()` 和直接调用。
+- **PIL.Image 输入支持**:参考图参数（`images` / `reference_images`）现在接受 `str | Path | PIL.Image.Image` 混合输入。
+- **自动图片预处理**:`api.generate()` 在分发到 client 前，自动将超过 2048px 边长的 PIL.Image 缩小（`thumbnail` + `LANCZOS`）。
+- **OpenAI 路径重试**:`openai_client` 新增 429/5xx 重试逻辑（默认 3 次，5s 间隔），与 gemini_client 行为对齐。
+- **`max_retries` 参数透传**:两个 client 的 `generate()` / `generate_images()` 和 `api.generate()` 都接受 `max_retries` 参数。
+- **`__init__.py` 导出**:`generate`、`Channel`、`ChannelError`、`GeminiError`、`OpenAIError`。
+- **Skill 更新**:新增 `references/python-api.md`（库 API 文档 + CLI 与库的选择指南）、`references/update-check.md`（git 更新流程）；SKILL.md 新增"首次使用"引导和"脚本调用"章节。
+- 13 个新测试（`test_api.py`）覆盖两个协议、PIL 输入、参数透传、图片预处理、错误抛出。
+
+### Changed
+
+- 默认 timeout 从 300s 不变（API 和 CLI 统一）。`_TIMEOUT_SECONDS` 在各模块中显式声明为 300。
+
 ## 0.3.0 - 2026-04-15
 
 ### Added

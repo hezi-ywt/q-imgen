@@ -30,6 +30,8 @@ from PIL import Image
 _MAX_IMAGE_EDGE = 2048
 _JPEG_QUALITY = 90
 _TIMEOUT_SECONDS = 300
+_MAX_RETRIES = 3
+_RETRY_DELAY_SECONDS = 5
 _DOWNLOAD_TIMEOUT_SECONDS = 120
 
 
@@ -40,48 +42,53 @@ class OpenAIError(Exception):
 # ---- request encoding ----
 
 
-def _encode_image_data_url(path: str) -> str:
+def _encode_image_data_url(path: str | Path | Image.Image) -> str:
     """Read an image, resize if oversized, and return a ``data:`` URL.
+
+    Accepts a file path (str/Path) or an in-memory PIL Image.
 
     The mime type and the actual encoded bytes stay consistent: PNG in → PNG
     out, everything else → JPEG (with RGBA flattened to white). Strict
     OpenAI-compat backends reject mismatches.
     """
-    image_path = Path(path)
-    if not image_path.exists():
-        raise OpenAIError(f"reference image not found: {path}")
-
-    with Image.open(image_path) as image:
+    if isinstance(path, Image.Image):
+        image = path
+        source_format = (image.format or "").upper()
+    else:
+        image_path = Path(path)
+        if not image_path.exists():
+            raise OpenAIError(f"reference image not found: {path}")
+        image = Image.open(image_path)
         image.load()
         source_format = (image.format or "").upper()
 
-        if source_format == "PNG":
-            mime_type = "image/png"
-            save_kwargs: dict[str, object] = {"format": "PNG", "optimize": True}
-            encoded = image
-        else:
-            mime_type = "image/jpeg"
-            save_kwargs = {
-                "format": "JPEG",
-                "quality": _JPEG_QUALITY,
-                "optimize": True,
-            }
-            if image.mode not in ("RGB", "L"):
-                background = Image.new("RGB", image.size, (255, 255, 255))
-                if image.mode in ("RGBA", "LA"):
-                    background.paste(image, mask=image.split()[-1])
-                else:
-                    background.paste(image.convert("RGB"))
-                encoded = background
+    if source_format == "PNG":
+        mime_type = "image/png"
+        save_kwargs: dict[str, object] = {"format": "PNG", "optimize": True}
+        encoded = image
+    else:
+        mime_type = "image/jpeg"
+        save_kwargs = {
+            "format": "JPEG",
+            "quality": _JPEG_QUALITY,
+            "optimize": True,
+        }
+        if image.mode not in ("RGB", "L"):
+            background = Image.new("RGB", image.size, (255, 255, 255))
+            if image.mode in ("RGBA", "LA"):
+                background.paste(image, mask=image.split()[-1])
             else:
-                encoded = image
+                background.paste(image.convert("RGB"))
+            encoded = background
+        else:
+            encoded = image
 
-        if max(encoded.size) > _MAX_IMAGE_EDGE:
-            encoded = encoded.copy()
-            encoded.thumbnail((_MAX_IMAGE_EDGE, _MAX_IMAGE_EDGE), Image.LANCZOS)
+    if max(encoded.size) > _MAX_IMAGE_EDGE:
+        encoded = encoded.copy()
+        encoded.thumbnail((_MAX_IMAGE_EDGE, _MAX_IMAGE_EDGE), Image.LANCZOS)
 
-        buffer = io.BytesIO()
-        encoded.save(buffer, **save_kwargs)
+    buffer = io.BytesIO()
+    encoded.save(buffer, **save_kwargs)
 
     data = base64.b64encode(buffer.getvalue()).decode("utf-8")
     return f"data:{mime_type};base64,{data}"
@@ -238,26 +245,25 @@ def _save_response_images(
     return saved
 
 
-# ---- main entry ----
+# ---- HTTP call ----
 
 
-def generate(
+def _call_api(
     *,
     prompt: str,
     base_url: str,
     api_key: str,
     model: str,
-    reference_images: list[str] | None = None,
+    reference_images: list[str | Path | Image.Image] | None = None,
     aspect_ratio: str = "3:4",
     image_size: str | None = None,
-    output_dir: str | Path = "./output",
-    prefix: str = "img",
     timeout: float = _TIMEOUT_SECONDS,
-) -> list[str]:
-    """Send one request and return saved image paths.
+    max_retries: int = _MAX_RETRIES,
+) -> list[dict]:
+    """Send one request and return extracted image records.
 
-    Raises ``OpenAIError`` on any network / protocol / save failure so cli.py
-    can translate it to a single ``[q-imgen] ...`` stderr line.
+    Returns a list of ``{"image_url": {"url": ...}}`` dicts. Raises
+    ``OpenAIError`` on failure.
     """
     content: list[dict] = []
     if reference_images:
@@ -277,47 +283,156 @@ def generate(
         "image_config": image_config,
     }
 
-    req = urllib.request.Request(
-        f"{base_url.rstrip('/')}/chat/completions",
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
+    url = f"{base_url.rstrip('/')}/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
+    data_bytes = json.dumps(payload).encode("utf-8")
 
-    try:
-        with urllib.request.urlopen(req, timeout=timeout) as response:
-            raw = response.read().decode("utf-8")
-    except urllib.error.HTTPError as exc:
+    last_error: str | None = None
+    for attempt in range(max_retries + 1):
+        if attempt > 0:
+            import time
+            time.sleep(_RETRY_DELAY_SECONDS)
+
+        req = urllib.request.Request(
+            url, data=data_bytes, headers=headers, method="POST"
+        )
+
         try:
-            body_text = exc.read().decode("utf-8", errors="replace")
-        except Exception:
-            body_text = ""
-        detail = _sanitize_error(body_text.strip(), api_key)
-        suffix = f": {detail}" if detail else ""
-        raise OpenAIError(f"API request failed with HTTP {exc.code}{suffix}") from exc
-    except urllib.error.URLError as exc:
+            with urllib.request.urlopen(req, timeout=timeout) as response:
+                raw = response.read().decode("utf-8")
+
+            try:
+                body = json.loads(raw)
+            except json.JSONDecodeError as exc:
+                raise OpenAIError(f"API returned non-JSON response: {exc}") from exc
+
+            images = _extract_images_from_response(body)
+            if not images:
+                raise OpenAIError("API response contained no images")
+            return images
+
+        except urllib.error.HTTPError as exc:
+            status = exc.code
+            try:
+                body_text = exc.read().decode("utf-8", errors="replace")
+            except Exception:
+                body_text = ""
+            detail = _sanitize_error(body_text.strip(), api_key)
+            message = f"API request failed with HTTP {status}"
+            if detail:
+                message += f": {detail}"
+
+            if 400 <= status < 500 and status != 429:
+                raise OpenAIError(message) from exc
+            last_error = message
+
+        except urllib.error.URLError as exc:
+            last_error = (
+                f"failed to reach {base_url}: "
+                f"{_sanitize_error(str(exc.reason), api_key)}"
+            )
+
+        except TimeoutError:
+            last_error = f"API request timed out after {timeout}s ({base_url})"
+
+    raise OpenAIError(f"all retries exhausted. Last error: {last_error}")
+
+
+def _image_records_to_pil(records: list[dict]) -> list[Image.Image]:
+    """Convert extracted image records to PIL Image objects."""
+    result: list[Image.Image] = []
+    for rec in records:
+        url = rec.get("image_url", {}).get("url", "")
+        if not url:
+            continue
+        if url.startswith("data:"):
+            _, _, b64_data = url.partition(",")
+            if not b64_data:
+                continue
+            result.append(Image.open(io.BytesIO(base64.b64decode(b64_data))))
+        elif url.startswith(("http://", "https://")):
+            try:
+                with urllib.request.urlopen(
+                    url, timeout=_DOWNLOAD_TIMEOUT_SECONDS
+                ) as response:
+                    result.append(Image.open(io.BytesIO(response.read())))
+            except (urllib.error.URLError, TimeoutError):
+                continue
+    return result
+
+
+# ---- main entries ----
+
+
+def generate_images(
+    *,
+    prompt: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    reference_images: list[str | Path | Image.Image] | None = None,
+    aspect_ratio: str = "3:4",
+    image_size: str | None = None,
+    timeout: float = _TIMEOUT_SECONDS,
+    max_retries: int = _MAX_RETRIES,
+) -> list[Image.Image]:
+    """Generate images and return as PIL Image objects (no disk I/O).
+
+    Raises ``OpenAIError`` on failure.
+    """
+    records = _call_api(
+        prompt=prompt,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        reference_images=reference_images,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+        timeout=timeout,
+        max_retries=max_retries,
+    )
+    pil_images = _image_records_to_pil(records)
+    if not pil_images:
         raise OpenAIError(
-            f"failed to reach {base_url}: "
-            f"{_sanitize_error(str(exc.reason), api_key)}"
-        ) from exc
-    except TimeoutError as exc:
-        raise OpenAIError(
-            f"API request timed out after {timeout}s ({base_url})"
-        ) from exc
+            "API returned images but none could be decoded (unknown URL format)"
+        )
+    return pil_images
 
-    try:
-        body = json.loads(raw)
-    except json.JSONDecodeError as exc:
-        raise OpenAIError(f"API returned non-JSON response: {exc}") from exc
 
-    images = _extract_images_from_response(body)
-    if not images:
-        raise OpenAIError("API response contained no images")
+def generate(
+    *,
+    prompt: str,
+    base_url: str,
+    api_key: str,
+    model: str,
+    reference_images: list[str | Path | Image.Image] | None = None,
+    aspect_ratio: str = "3:4",
+    image_size: str | None = None,
+    output_dir: str | Path = "./output",
+    prefix: str = "img",
+    timeout: float = _TIMEOUT_SECONDS,
+    max_retries: int = _MAX_RETRIES,
+) -> list[str]:
+    """Send one request and return saved image paths.
 
-    saved = _save_response_images(images, output_dir, prefix)
+    Raises ``OpenAIError`` on any network / protocol / save failure so cli.py
+    can translate it to a single ``[q-imgen] ...`` stderr line.
+    """
+    records = _call_api(
+        prompt=prompt,
+        base_url=base_url,
+        api_key=api_key,
+        model=model,
+        reference_images=reference_images,
+        aspect_ratio=aspect_ratio,
+        image_size=image_size,
+        timeout=timeout,
+        max_retries=max_retries,
+    )
+    saved = _save_response_images(records, output_dir, prefix)
     if not saved:
         raise OpenAIError(
             "API returned images but none could be saved (unknown URL format)"

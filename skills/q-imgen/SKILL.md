@@ -18,7 +18,22 @@ metadata:
 - q-imgen **不负责** prompt 优化、启发式路由、工作流编排、角色设定管理
 - q-imgen 的 stdout 是**机器侧 JSON**,你负责把它整理成用户能看的消息
 
-**每次在本轮里第一次进入 q-imgen skill 时,必须先读** [references/user-notes.md](references/user-notes.md)。那里是这个 skill 的记忆层:用户偏好、项目偏好、真实踩坑和已有工作流,优先级高于你自己的临场猜测。任务做完后,如果这次新增了稳定偏好、有效经验或新坑,要**及时回写**进去,不要拖到以后。
+**每次在本轮里第一次进入 q-imgen skill 时,必须先读** [references/user-notes.md](references/user-notes.md)。用户要求检查更新或你发现版本可能过旧时,按 [references/update-check.md](references/update-check.md) 操作。那里是这个 skill 的记忆层:用户偏好、项目偏好、真实踩坑和已有工作流,优先级高于你自己的临场猜测。任务做完后,如果这次新增了稳定偏好、有效经验或新坑,要**及时回写**进去,不要拖到以后。
+
+## 首次使用
+
+在执行任何生图命令前,先跑 `q-imgen channel list`。如果输出为空（没有配置任何渠道）,**主动引导用户完成首次配置**:
+
+1. 告诉用户需要一个 API 渠道才能使用,需要提供: `base_url`、`api_key`、`protocol`（gemini 或 openai）、`model`
+2. 用户提供信息后,执行:
+
+```bash
+q-imgen channel add <name> --protocol <protocol> --base-url <url> --api-key <key> --model <model>
+```
+
+3. 验证: `q-imgen channel list` 确认渠道已添加且标记为默认
+
+不要跳过这一步直接生图 — 没有渠道一定会报错。
 
 ## 快速决策
 
@@ -106,6 +121,38 @@ q-imgen batch tasks.json -o ./output --delay 1.0
 
 batch task 的字段和约束读 [references/nanobanana-batch-format.md](references/nanobanana-batch-format.md)。尤其是 `prompt` 必填、`--delay` 只是串行间隔、部分失败如何看 `results`,都在那里。
 
+### 脚本调用（Python 库）
+
+q-imgen 除了 CLI,也可以作为 Python 包在脚本里直接调用。适用于需要自定义循环、条件逻辑、图片预处理/后处理的工作流。
+
+```python
+from q_imgen import generate
+
+images = generate(
+    "prompt",
+    images=["ref.png", pil_image_obj],  # str | Path | PIL.Image 混合
+    channel="my-proxy",                  # None = 默认渠道
+    aspect_ratio="1:1",
+    image_size="1K",
+    timeout=300,
+    max_retries=3,
+)
+
+for img in images:
+    img.save("output.png")  # 返回 PIL.Image,用户自己控制保存
+```
+
+关键设计:
+
+- **输入**: `images` 接受文件路径和 `PIL.Image` 对象混合,脚本可以先用 Pillow 做预处理再传入
+- **输出**: 返回 `list[PIL.Image.Image]`,不保存文件、不写 history、不打印 — 纯函数,脚本自己决定怎么处理结果
+- **错误**: 失败抛异常（`ChannelError` / `GeminiError` / `OpenAIError`）,不返回 status dict
+- **渠道**: 复用 CLI 的 channel 配置（`~/.q-imgen/channels.json`）,不用在脚本里写 base_url/api_key
+
+典型场景: 角色 × 场景的批量生图、golden anchor 风格对齐、带条件分支的生图流程。这些逻辑由脚本自己控制,q-imgen 只负责单次生成这个原子操作。
+
+完整 API 文档、CLI 与库的选择指南、以及各类示例见 [references/python-api.md](references/python-api.md)。
+
 ### 历史
 
 只有用户**明确问历史**时才查:
@@ -163,3 +210,5 @@ batch task 的字段和约束读 [references/nanobanana-batch-format.md](referen
 - [references/troubleshooting.md](references/troubleshooting.md) — 常见错误与修法
 - [references/history-queries.md](references/history-queries.md) — history 字段 schema 和查询命令模板
 - [references/user-notes.md](references/user-notes.md) — 偏好、经验、教训、工作流(agent 维护)
+- [references/python-api.md](references/python-api.md) — Python 库 API 文档、CLI 与库的选择指南、示例
+- [references/update-check.md](references/update-check.md) — 检查和执行 git 更新

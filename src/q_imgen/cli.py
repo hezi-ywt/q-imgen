@@ -92,6 +92,7 @@ def _run_single(
                 reference_images=reference_images,
                 aspect_ratio=aspect_ratio,
                 image_size=image_size,
+                timeout=300,
             )
             images, texts = gemini_client.extract_images(response)
             if not images:
@@ -121,6 +122,7 @@ def _run_single(
                 image_size=image_size,
                 output_dir=output_dir,
                 prefix=prefix,
+                timeout=300,
             )
             result = {**base_result, "status": "ok", "images": saved}
 
