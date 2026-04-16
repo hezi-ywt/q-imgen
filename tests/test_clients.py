@@ -129,7 +129,7 @@ class OpenAIGenerateTests(unittest.TestCase):
         self.assertEqual(payload["image_config"]["image_size"], "2K")
 
     def test_extracts_images_from_markdown_content(self):
-        """yunwu-style response: ![img](data:image/jpeg;base64,...) inside message.content string."""
+        """gateway-style response: ![img](data:image/jpeg;base64,...) inside message.content string."""
         from q_imgen.openai_client import _extract_images_from_response
 
         body = {
@@ -278,8 +278,8 @@ class OpenAIGenerateTests(unittest.TestCase):
             [],
         )
 
-    def test_full_yunwu_style_generate_roundtrip(self):
-        """End-to-end: yunwu-shape response through generate() writes a file."""
+    def test_full_gateway_style_generate_roundtrip(self):
+        """End-to-end: gateway-shape response through generate() writes a file."""
         import base64
         real_b64 = base64.b64encode(_PNG_1X1).decode()
         fake_body = json.dumps(
@@ -309,11 +309,11 @@ class OpenAIGenerateTests(unittest.TestCase):
         ):
             saved = openai_client.generate(
                 prompt="test",
-                base_url="https://yunwu.ai/v1",
+                base_url="https://gateway.example.com/v1",
                 api_key="sk-test",
                 model="gemini-3-pro-image-preview",
                 output_dir=tmp,
-                prefix="yunwu",
+                prefix="gateway",
             )
         self.assertEqual(len(saved), 1)
         self.assertTrue(saved[0].endswith(".png"))

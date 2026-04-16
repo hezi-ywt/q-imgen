@@ -68,7 +68,7 @@ class RecordBuildTests(unittest.TestCase):
         defaults = dict(
             prompt="cat",
             model="gemini-3.1-flash-image-preview",
-            channel="yunwu-gemini",
+            channel="test-channel",
             protocol="gemini",
             aspect_ratio="3:4",
             image_size=None,

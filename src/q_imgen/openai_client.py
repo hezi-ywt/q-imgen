@@ -128,19 +128,19 @@ def _extract_images_from_response(body: dict) -> list[dict]:
 
     OpenAI-compatible image-generation gateways are not standardized on where
     they put generated images — the ``/chat/completions`` response shape
-    differs across one-api / new-api / litellm / yunwu and other forks.
+    differs across one-api / new-api / litellm / various proxies and other forks.
     Rather than guessing which one a gateway uses, we **scan all known
     locations and merge the results**, deduping by URL.
 
     Recognized locations (all checked, results merged in encounter order):
 
     1. ``choices[0].message.images[]`` — explicit array, each entry of the
-       form ``{"image_url": {"url": "..."}}``. Used by sd.rnglg2.top and a
+       form ``{"image_url": {"url": "..."}}``. Used by proxy.example.com and a
        few other proxies as a non-standard extension.
 
     2. **Markdown** ``![alt](url)`` **inside ``choices[0].message.content``**
        (string). This is the **most common shape** across one-api / new-api /
-       litellm / yunwu and most public OpenAI-compat image gateways. The URL
+       litellm / various proxies and most public OpenAI-compat image gateways. The URL
        may be a ``data:image/...;base64,...`` payload or an
        ``http(s)://...`` link. Multiple images per response are supported.
 

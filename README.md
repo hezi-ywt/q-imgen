@@ -35,7 +35,7 @@ q-imgen ships two clients under the hood:
 | Protocol | Endpoint | Use it for |
 |---|---|---|
 | `gemini` | `POST {base_url}/models/{model}:generateContent` | Google's native Gemini API (auto-detects `googleapis.com` and uses `?key=` auth) or any proxy that speaks the Gemini payload format (uses Bearer auth) |
-| `openai` | `POST {base_url}/chat/completions` | OpenAI-compatible gateways (one-api / new-api / litellm / yunwu / etc.) that expose image generation under the chat schema |
+| `openai` | `POST {base_url}/chat/completions` | OpenAI-compatible gateways (one-api / new-api / litellm / various proxies / etc.) that expose image generation under the chat schema |
 
 Pick the right one when adding a channel; q-imgen dispatches automatically.
 
@@ -47,7 +47,7 @@ The OpenAI client tolerates the **three different response shapes** real gateway
 # Add your first channel (becomes the default automatically)
 q-imgen channel add proxy-a \
   --protocol openai \
-  --base-url https://sd.rnglg2.top:30000/v1 \
+  --base-url https://your-proxy.example.com/v1 \
   --api-key sk-xxx \
   --model gemini-3.1-flash-image-preview
 
@@ -118,7 +118,7 @@ Example error (exit 1):
   "channels": {
     "proxy-a": {
       "protocol": "openai",
-      "base_url": "https://sd.rnglg2.top:30000/v1",
+      "base_url": "https://your-proxy.example.com/v1",
       "api_key": "sk-...",
       "model": "gemini-3.1-flash-image-preview"
     },

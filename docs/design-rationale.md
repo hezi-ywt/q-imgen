@@ -29,13 +29,13 @@
 
 | 形状 | 谁这样 | 字段位置 |
 |---|---|---|
-| 1 | sd.rnglg2.top 等少数代理 | `choices[0].message.images[].image_url.url` |
-| 2 | **大多数 one-api / new-api / litellm / yunwu fork** | `choices[0].message.content` 字符串里的 `![...](url)` markdown |
+| 1 | proxy.example.com 等少数代理 | `choices[0].message.images[].image_url.url` |
+| 2 | **大多数 one-api / new-api / litellm / various proxies fork** | `choices[0].message.content` 字符串里的 `![...](url)` markdown |
 | 3 | 部分对称使用 vision 输入格式的代理 | `choices[0].message.content` 数组里的 `{"type": "image_url", ...}` parts |
 
 `openai_client._extract_images_from_response` **同时扫描三个位置并 dedup by URL**。不做"先 try shape 1,失败再 try shape 2"的分支,因为:
 
-1. **形状 2 是事实主流**(yunwu 实测就是这样,litellm 和大多数 one-api 派生也是)。把它作为 fallback 是优先级搞反。
+1. **形状 2 是事实主流**(various proxies 实测就是这样,litellm 和大多数 one-api 派生也是)。把它作为 fallback 是优先级搞反。
 2. **同一响应里可能两种位置都有图**(罕见但合法)。merge + dedup 比"first wins"更正确。
 3. **新增一种形状的成本很低**:在 `_extract_images_from_response` 里加一行调用 `_add(url)` 即可,不影响其它路径。
 

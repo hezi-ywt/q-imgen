@@ -9,7 +9,7 @@ q-imgen 的 stdout 是机器侧 JSON。用户看到的应该是**压缩过、可
 >
 > > 银发精灵弓箭手,魔法森林
 >
-> - **模型** Nano Banana 2 · **渠道** yunwu-gemini
+> - **模型** Nano Banana 2 · **渠道** my-channel
 > - **比例** 3:4 · **尺寸** 2K · **参考图** 无
 > - **输出** `./output/img_000.png`
 ```
@@ -30,7 +30,7 @@ q-imgen 的 stdout 是机器侧 JSON。用户看到的应该是**压缩过、可
 >
 > > 第一张图的角色穿上第二张图的服装
 >
-> - **模型** Nano Banana Pro · **渠道** yunwu-gemini
+> - **模型** Nano Banana Pro · **渠道** my-channel
 > - **比例** 3:4 · **尺寸** 默认
 > - **参考图**
 >   - `character.png`(角色)
@@ -89,7 +89,7 @@ q-imgen 的 stdout 是机器侧 JSON。用户看到的应该是**压缩过、可
 >
 > > 银发精灵弓箭手,魔法森林,黄昏光线(保持角色一致)
 >
-> - **模型** Nano Banana Pro · **渠道** yunwu-gemini
+> - **模型** Nano Banana Pro · **渠道** my-channel
 > - **比例** 3:4 · **尺寸** 2K
 > - **参考图**
 >   - `elf_000.png`(上一轮的输出 · 锁定人物特征)
@@ -109,7 +109,7 @@ q-imgen 的 stdout 是机器侧 JSON。用户看到的应该是**压缩过、可
 ```md
 > **📦 批量生成完成**: 18 / 20 成功
 >
-> - **模型** Nano Banana 2 · **渠道** yunwu-gemini
+> - **模型** Nano Banana 2 · **渠道** my-channel
 > - **任务文件** tasks.json
 > - **输出目录** `./output`
 > - **失败 task**
@@ -132,7 +132,7 @@ q-imgen 的 stdout 是机器侧 JSON。用户看到的应该是**压缩过、可
 >
 > - **渠道** broken · **模型** Nano Banana Pro
 > - **错误** failed to reach https://does-not-exist.invalid/v1: SSL handshake failed
-> - **建议** 检查 `q-imgen channel show broken` 看 `base_url` 是否正确;或换个渠道重试:`--channel yunwu-gemini`
+> - **建议** 检查 `q-imgen channel show broken` 看 `base_url` 是否正确;或换个渠道重试:`--channel my-channel`
 ```
 
 规则:

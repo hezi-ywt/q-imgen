@@ -35,7 +35,7 @@ q-imgen 内部提供两个 client：
 | 协议 | 接口 | 适用场景 |
 |---|---|---|
 | `gemini` | `POST {base_url}/models/{model}:generateContent` | Google 原生 Gemini API（自动识别 `googleapis.com` 并使用 `?key=` 鉴权），或任何兼容 Gemini payload 格式的代理（使用 Bearer 鉴权） |
-| `openai` | `POST {base_url}/chat/completions` | 以 OpenAI chat schema 暴露图像生成能力的兼容网关（one-api / new-api / litellm / yunwu 等） |
+| `openai` | `POST {base_url}/chat/completions` | 以 OpenAI chat schema 暴露图像生成能力的兼容网关（one-api / new-api / litellm / 各类代理 等） |
 
 添加 channel 时选对协议即可；后续调用时 q-imgen 会自动分发。
 
@@ -47,7 +47,7 @@ OpenAI client 能兼容真实网关里常见的三种内嵌图片返回形状：
 # 添加第一个 channel（会自动成为默认 channel）
 q-imgen channel add proxy-a \
   --protocol openai \
-  --base-url https://sd.rnglg2.top:30000/v1 \
+  --base-url https://your-proxy.example.com/v1 \
   --api-key sk-xxx \
   --model gemini-3.1-flash-image-preview
 
@@ -118,7 +118,7 @@ q-imgen batch tasks.json -o ./output --delay 1.0
   "channels": {
     "proxy-a": {
       "protocol": "openai",
-      "base_url": "https://sd.rnglg2.top:30000/v1",
+      "base_url": "https://your-proxy.example.com/v1",
       "api_key": "sk-...",
       "model": "gemini-3.1-flash-image-preview"
     },

@@ -45,7 +45,7 @@ All notable changes to `q-imgen` will be documented in this file.
 
 ### Changed
 
-- **OpenAI 协议响应解析改为多形状并行扫描 + dedup**。0.2.1 把 markdown content 当 fallback 是优先级搞反 —— markdown-in-content 实际是大多数 one-api / new-api / litellm / yunwu 中转的**主流形状**,不是边缘案例。`_extract_images_from_response` 现在同时扫三个位置(`message.images[]` / `message.content` 字符串里的 markdown / `message.content` 列表里的 vision parts),按 URL dedup,不做 first-wins 短路。
+- **OpenAI 协议响应解析改为多形状并行扫描 + dedup**。0.2.1 把 markdown content 当 fallback 是优先级搞反 —— markdown-in-content 实际是大多数 one-api / new-api / litellm / proxy gateway 中转的**主流形状**,不是边缘案例。`_extract_images_from_response` 现在同时扫三个位置(`message.images[]` / `message.content` 字符串里的 markdown / `message.content` 列表里的 vision parts),按 URL dedup,不做 first-wins 短路。
 - 文档 `docs/design-rationale.md` 新增 "Why the OpenAI client accepts multiple response shapes" 一节,说明这是设计决策不是兼容补丁,并指明未来加新形状的标准流程(扫一行 + 一个测试)。
 
 ### Added
@@ -56,15 +56,15 @@ All notable changes to `q-imgen` will be documented in this file.
 
 ### Fixed
 
-- **OpenAI 协议支持 markdown 内嵌图像响应**。之前 `openai_client.py` 只识别 `choices[0].message.images[]` 形状(某些代理的非标准扩展),现在同时支持 `choices[0].message.content` 里的 markdown `![...](data:image/...)` 或 `![...](http://...)`。实测 yunwu.ai 用后一种形状返回图像,修复后两种网关都能工作。新增 3 个回归测试覆盖两种 shape 和优先级。
+- **OpenAI 协议支持 markdown 内嵌图像响应**。之前 `openai_client.py` 只识别 `choices[0].message.images[]` 形状(某些代理的非标准扩展),现在同时支持 `choices[0].message.content` 里的 markdown `![...](data:image/...)` 或 `![...](http://...)`。实测 proxy-gateway.example 用后一种形状返回图像,修复后两种网关都能工作。新增 3 个回归测试覆盖两种 shape 和优先级。
 
 ### Notes (not code changes)
 
-- 实测验证 yunwu.ai 的两个协议端点都能跑通 Google Nano Banana Pro (`gemini-3-pro-image-preview`):
-  - Gemini 原生:`https://yunwu.ai/v1beta`
-  - OpenAI 兼容:`https://yunwu.ai/v1`
+- 实测验证 proxy-gateway.example 的两个协议端点都能跑通 Google Nano Banana Pro (`gemini-3-pro-image-preview`):
+  - Gemini 原生:`https://proxy-gateway.example/v1beta`
+  - OpenAI 兼容:`https://proxy-gateway.example/v1`
   - 同一把 `sk-` key 两个协议都能用
-  - 但 yunwu 的 OpenAI 端点**不尊重** `image_config.aspect_ratio`,需要严格控制 ratio 时用 Gemini 协议渠道
+  - 但 proxy gateway 的 OpenAI 端点**不尊重** `image_config.aspect_ratio`,需要严格控制 ratio 时用 Gemini 协议渠道
 - 对应经验已写入 `skills/q-imgen/references/user-notes.md` 的 Patterns 区
 
 ## 0.2.0 - 2026-04-15

@@ -8,7 +8,7 @@ q-imgen 自身只提供一个零参数的 helper:
 
 ```bash
 $ q-imgen history
-/Users/ywt/.q-imgen/history/2026-04-15.jsonl
+/home/user/.q-imgen/history/2026-04-15.jsonl
 ```
 
 它**只打印今天的 log 路径**,不做任何查询 —— 因为 `tail` / `grep` / `jq` 已经是更好的查询工具,q-imgen 不重新发明轮子。
@@ -69,7 +69,7 @@ jq -r 'select(.prompt | contains("精灵")) | "\(.ts)  \(.outputs[0])  \(.prompt
 
 ```bash
 jq -r '
-  select(.workdir == "/Users/ywt/comic-A"
+  select(.workdir == "/home/user/comic-A"
          and (.model | contains("pro"))
          and .status == "ok")
   | .ts
@@ -140,15 +140,15 @@ jq -r '"\(.channel) \(.status)"' ~/.q-imgen/history/*.jsonl |
   "ts": "2026-04-15T19:09:23+08:00",
   "prompt": "银发精灵弓箭手,魔法森林",
   "model": "gemini-3.1-flash-image-preview",
-  "channel": "yunwu-gemini",
+  "channel": "my-channel",
   "protocol": "gemini",
   "aspect_ratio": "3:4",
   "image_size": "2K",
   "ref_images": [],
-  "outputs": ["/Users/ywt/comic-A/output/elf_000.png"],
+  "outputs": ["/home/user/comic-A/output/elf_000.png"],
   "status": "ok",
   "latency_ms": 17826,
-  "workdir": "/Users/ywt/comic-A"
+  "workdir": "/home/user/comic-A"
 }
 ```
 
@@ -158,7 +158,7 @@ jq -r '"\(.channel) \(.status)"' ~/.q-imgen/history/*.jsonl |
 
 如果你跑了几年攒到几百 MB 才需要操心:
 
-- **先 grep 再 jq**:`grep '"workdir":"/Users/ywt/comic-A"' *.jsonl | jq ...` 能少处理几个数量级
+- **先 grep 再 jq**:`grep '"workdir":"/home/user/comic-A"' *.jsonl | jq ...` 能少处理几个数量级
 - **限定日期范围**:不要无脑 `*.jsonl`,用 `2026-04-*.jsonl` 收窄到月
 - **手工归档老文件**:`mkdir archive && mv 2024-*.jsonl archive/`(归档后查询要明确指向 archive 目录)
 

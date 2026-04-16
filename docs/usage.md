@@ -46,7 +46,7 @@ PYTHONPATH=src python -m q_imgen --help
 # 代理网关,OpenAI 兼容
 q-imgen channel add proxy-a \
   --protocol openai \
-  --base-url https://sd.rnglg2.top:30000/v1 \
+  --base-url https://your-proxy.example.com/v1 \
   --api-key sk-xxx \
   --model gemini-3.1-flash-image-preview
 
@@ -155,7 +155,7 @@ ref = Image.open("ref.png").resize((512, 512))
 images = generate("同样的角色穿宇航服", images=[ref, "style.png"])
 
 # 指定渠道和参数
-images = generate("prompt", channel="yunwu", image_size="1K", timeout=300, max_retries=3)
+images = generate("prompt", channel="my-gateway", image_size="1K", timeout=300, max_retries=3)
 ```
 
 ### 与 CLI 的区别
@@ -221,7 +221,7 @@ q-imgen channel add <name> ... --force   # 覆盖同名渠道
   "channels": {
     "proxy-a": {
       "protocol": "openai",
-      "base_url": "https://sd.rnglg2.top:30000/v1",
+      "base_url": "https://your-proxy.example.com/v1",
       "api_key": "sk-...",
       "model": "gemini-3.1-flash-image-preview"
     }
