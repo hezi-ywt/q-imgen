@@ -155,6 +155,25 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 当前测试全部是离线测试，HTTP 调用都被 mock 掉了。这个版本没有内置 live smoke test；如果你需要，可以自行添加 `tests/live_*.py` 并用环境变量控制是否执行。
 
+## Python 库 API
+
+q-imgen 也可以作为 Python 库在脚本中直接调用，适用于需要自定义循环、图片预处理/后处理、任务间依赖的工作流：
+
+```python
+from q_imgen import generate
+
+images = generate("一只可爱的狐狸", images=["style_ref.png"], channel="my-proxy",
+                  aspect_ratio="1:1", image_size="1K")
+images[0].save("output.png")
+```
+
+- 返回 `list[PIL.Image.Image]` — 不保存文件、不写 history、不打印
+- `images` 参数接受文件路径（`str`/`Path`）和 `PIL.Image` 对象混合
+- 复用 CLI 的 channel 配置（`~/.q-imgen/channels.json`）
+- 失败时抛异常（`ChannelError` / `GeminiError` / `OpenAIError`）
+
+**CLI 还是库？** CLI 适合 agent 调用、单次生成、batch 任务、shell 管道。库适合需要在生成前后处理图片、串联多次生成结果、或自定义循环逻辑的 Python 脚本。
+
 ## 设计原则
 
 - **原子原语，不做框架**。`generate` 和 `batch` 各自只做一件事；prompt 优化、角色一致性、工作流编排都属于上层调用方。
@@ -167,10 +186,12 @@ python -m unittest discover -s tests -p "test_*.py" -v
 ```text
 q-imgen/
 ├── src/q_imgen/
+│   ├── api.py              # Python 库 API：generate() → list[PIL.Image]
 │   ├── cli.py              # argparse 入口与子命令处理
 │   ├── channels.py         # channels.json 的 CRUD
 │   ├── gemini_client.py    # Gemini 原生协议
-│   └── openai_client.py    # OpenAI 兼容协议
+│   ├── openai_client.py    # OpenAI 兼容协议
+│   └── history.py          # 审计日志（JSONL）
 ├── tests/
 └── skills/q-imgen/         # 面向 agent 的 skill
 ```

@@ -155,6 +155,25 @@ python -m unittest discover -s tests -p "test_*.py" -v
 
 All tests are offline — HTTP calls are mocked. There is no live smoke test in this version; if you need one, add a `tests/live_*.py` and gate it on an env var.
 
+## Python library API
+
+q-imgen can also be used as a Python library in scripts that need custom loops, image pre/post-processing, or inter-task dependencies:
+
+```python
+from q_imgen import generate
+
+images = generate("a cute fox", images=["style_ref.png"], channel="my-proxy",
+                  aspect_ratio="1:1", image_size="1K")
+images[0].save("output.png")
+```
+
+- Returns `list[PIL.Image.Image]` — no files saved, no history, no printing
+- `images` accepts file paths (`str`/`Path`) and `PIL.Image` objects mixed
+- Reuses CLI channel config (`~/.q-imgen/channels.json`)
+- Raises `ChannelError` / `GeminiError` / `OpenAIError` on failure
+
+**When to use CLI vs library:** CLI for agent calls, one-shot generation, batch jobs, shell pipelines. Library for Python scripts that need to process images before/after generation, chain outputs between tasks, or control loop logic.
+
 ## Design philosophy
 
 - **Atomic primitive**, not a framework. `generate` and `batch` do one thing each; higher-level orchestration (prompt engineering, character consistency, workflow composition) belongs to the caller.
@@ -167,10 +186,12 @@ All tests are offline — HTTP calls are mocked. There is no live smoke test in 
 ```
 q-imgen/
 ├── src/q_imgen/
+│   ├── api.py              # public Python API: generate() → list[PIL.Image]
 │   ├── cli.py              # argparse entry, subcommand handlers
 │   ├── channels.py         # channels.json CRUD
 │   ├── gemini_client.py    # Gemini-native protocol
-│   └── openai_client.py    # OpenAI-compat protocol
+│   ├── openai_client.py    # OpenAI-compat protocol
+│   └── history.py          # audit log (JSONL)
 ├── tests/
 └── skills/q-imgen/         # agent-facing skill
 ```

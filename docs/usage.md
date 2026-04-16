@@ -138,6 +138,52 @@ q-imgen batch tasks.json --channel google --model override-model
 
 部分失败返回 **exit 0** + `status: "partial"`,让调用方看 `results` 数组决定下一步。全部失败才 exit 1。
 
+## Python 库调用 (0.4.0+)
+
+除了 CLI,q-imgen 也可以作为 Python 包在脚本里直接调用:
+
+```python
+from q_imgen import generate
+
+# 基本生成
+images = generate("一只橙色的猫", aspect_ratio="1:1")
+images[0].save("cat.png")
+
+# 带参考图(文件路径和 PIL.Image 混合)
+from PIL import Image
+ref = Image.open("ref.png").resize((512, 512))
+images = generate("同样的角色穿宇航服", images=[ref, "style.png"])
+
+# 指定渠道和参数
+images = generate("prompt", channel="yunwu", image_size="1K", timeout=300, max_retries=3)
+```
+
+### 与 CLI 的区别
+
+| | CLI | Python 库 |
+|---|---|---|
+| 输出 | JSON stdout + 图片存盘 | `list[PIL.Image.Image]`,不存盘 |
+| 错误 | stderr + exit 1 | 抛异常 |
+| history | 自动记录 | 不记录 |
+
+### 什么时候用 CLI,什么时候用库
+
+- **CLI**:agent 调用、单次生图、batch 任务、shell 管道
+- **库**:需要图片预处理/后处理、任务间有依赖(如 golden anchor)、自定义循环/条件逻辑、和其他 Python 代码集成
+
+### 错误处理
+
+```python
+from q_imgen import generate, ChannelError, OpenAIError, GeminiError
+
+try:
+    images = generate("prompt")
+except ChannelError as e:
+    print(f"渠道问题: {e}")
+except (OpenAIError, GeminiError) as e:
+    print(f"生成失败: {e}")
+```
+
 ## History (0.3.0+)
 
 q-imgen 自动把每次 `generate` / `batch` task 追加到 `~/.q-imgen/history/YYYY-MM-DD.jsonl`(按本地日期分文件)。失败和成功都记录,内部用 `fcntl.flock` 保证并发写入安全。

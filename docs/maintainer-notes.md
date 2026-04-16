@@ -37,18 +37,20 @@ Users and agents 的使用路径:
 2. `cd q-imgen`
 3. `python -m pip install -e .`
 4. `q-imgen channel add ...`(CLI 会用 stderr 引导)
-5. `q-imgen generate "..."`
+5. CLI 使用:`q-imgen generate "..."`
+6. Python 库使用:`from q_imgen import generate`
 
-不依赖任何外部包、不需要激活虚拟环境之外的任何东西。
+不依赖任何外部包(只有 Pillow)、不需要激活虚拟环境之外的任何东西。
 
 ## Adding a new protocol
 
 如果未来要加第三种协议(比如 Anthropic Vision / Replicate / 其他自定义 API):
 
-1. 新建 `src/q_imgen/<name>_client.py`,提供一个 `generate(...)` 函数和一个 `<Name>Error` 异常
+1. 新建 `src/q_imgen/<name>_client.py`,提供 `generate(...)` 和 `generate_images(...)` 函数,以及一个 `<Name>Error` 异常
 2. 在 `channels.py` 的 `VALID_PROTOCOLS` 里加新 protocol 名
 3. 在 `cli.py` 的 `_run_single` 里加一个 `elif channel.protocol == "<name>":` 分支
-4. 加对应的测试(参考 `test_clients.py` 里两个既有 client 的测试形状)
+4. 在 `api.py` 的 `generate()` 里加一个 `elif ch.protocol == "<name>":` 分支
+5. 加对应的测试(参考 `test_clients.py` 里两个既有 client 的测试形状,以及 `test_api.py` 的 API 层测试)
 
 不需要碰 CLI 的参数解析 —— `--channel` 已经可以承载任意 protocol,用户加渠道时 `--protocol <name>` 即可。
 
