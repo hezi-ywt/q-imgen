@@ -30,8 +30,15 @@
   - OpenAI 兼容:`base_url = https://proxy-gateway.example/v1`,同一把 key,同样的模型 ID
   - 同一把 `sk-` 开头的 key **两个协议都能用**,不需要分两把
 
-- **gateway 的 OpenAI 端点不尊重 `image_config.aspect_ratio`** (2026-04-15)
-  同样的 prompt、同样的 `--aspect-ratio 3:4`:Gemini 协议返回 896×1200(3:4 正确),OpenAI 协议返回 1408×768(≈16:9,被忽略了)。**需要严格控制 aspect ratio 时用 Gemini 协议渠道**,不要用 gateway 的 OpenAI 渠道。
+- **gateway 的 OpenAI 端点同时忽略 `aspect_ratio` 和 `image_size`** (2026-04-17 复测)
+  同一个 gateway、同一把 key、同一个模型 ID,只换协议:
+  - **aspect_ratio**:`--aspect-ratio 3:4` / `1:1` 在 OpenAI 端点一律被忽略,固定吐 ≈16:9。Gemini 协议正确返回对应比例。
+  - **image_size**:`--image-size 1K/2K/4K` 在 OpenAI 端点也一律被忽略,固定吐 1408×768(≈1K)。Gemini 协议下 `2K` 正确返回 2048×2048。
+
+  原因在代理侧:gateway 的 OpenAI 兼容层没把这两个参数映射到下游 Gemini 的 `imageConfig`。**需要控制分辨率或长宽比时只能用 Gemini 协议渠道**,不要用 gateway 的 OpenAI 渠道(它现在只能当 1K + ≈16:9 出图器)。
+
+- **参考图数 >5 时必须用 Nano Banana Pro** (2026-04-17)
+  Nano Banana 2 对 ≤5 张参考图的角色/主体控制稳定,>5 张后会丢元素、姿势错乱、风格混淆(user 明确反馈)。多图融合 / 角色一致性任务在 `--image` 超过 5 个时,显式传 `--model gemini-3-pro-image-preview`,或切到本身默认是 Pro 的渠道。这和 models.md 失败模式表里"参考图太多"那行是同一件事,这里把阈值定死成 **5**。
 
 ## Observations
 
