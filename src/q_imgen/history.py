@@ -12,10 +12,15 @@ Design choices baked in here:
   we print a ``[q-imgen] warning: ...`` line to stderr and return; we never
   raise out, because by the time we're called the user's image has already
   been generated and the log is secondary state.
-- **fcntl.flock for concurrency**. Multiple ``q-imgen`` processes can append
-  to the same file at the same time (``xargs -P``, asyncio fanout, etc.)
-  without interleaving. Each writer holds an exclusive lock for the
-  microseconds it takes to ``write()`` + ``flush()``.
+- **Cross-platform exclusive lock for concurrency**. Multiple ``q-imgen``
+  processes can append to the same file at the same time (``xargs -P``,
+  asyncio fanout, etc.) without interleaving. POSIX uses ``fcntl.flock``,
+  Windows uses ``msvcrt.locking``. Each writer holds an exclusive lock for
+  the microseconds it takes to ``write()`` + ``flush()``.
+- **Binary append mode**. The file is opened ``"ab"`` so the JSONL stays
+  LF-only on every platform — Windows text mode would otherwise translate
+  ``\\n`` to ``\\r\\n`` and confuse downstream ``jq``/``cat`` on shared
+  cross-platform logs.
 - **Workdir = git root if available, else cwd**. Same git repo from
   different subdirectories logs to the same workdir value, which makes
   ``jq 'select(.workdir == ...)'`` filtering more useful.
@@ -27,13 +32,51 @@ Design choices baked in here:
 from __future__ import annotations
 
 import datetime as _dt
-import fcntl
 import json
+import os
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
 HISTORY_DIR = Path.home() / ".q-imgen" / "history"
+
+# In-process serialization. The OS-level lock below covers the cross-process
+# case (multiple ``q-imgen`` invocations writing the same log); this Python
+# lock makes sure same-process threads never race on the OS lock either.
+# Without it, ``msvcrt.locking`` on Windows would back off (LK_LOCK retries
+# 10×1s then raises) under burst contention from e.g. asyncio fanout, and
+# best-effort writes would silently get dropped.
+_PROCESS_LOCK = threading.Lock()
+
+
+# Cross-platform exclusive file lock. POSIX uses fcntl.flock (whole-file
+# advisory lock); Windows uses msvcrt.locking, which is byte-range and
+# mandatory but still meets our single-writer-at-a-time guarantee for the
+# few bytes we append.
+if os.name == "nt":
+    import msvcrt
+
+    def _lock_exclusive(fd: int) -> None:
+        # LK_LOCK retries for ~10 seconds before raising; sufficient given
+        # we hold the lock only for the duration of write()+flush().
+        msvcrt.locking(fd, msvcrt.LK_LOCK, 1)
+
+    def _unlock(fd: int) -> None:
+        try:
+            msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+        except OSError:
+            # Best-effort unlock — closing the file releases it anyway.
+            pass
+
+else:
+    import fcntl
+
+    def _lock_exclusive(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+
+    def _unlock(fd: int) -> None:
+        fcntl.flock(fd, fcntl.LOCK_UN)
 
 
 def resolve_workdir() -> str:
@@ -131,14 +174,20 @@ def append(record: dict[str, Any]) -> None:
     try:
         log_path = today_log_path()
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        line = json.dumps(record, ensure_ascii=False) + "\n"
-        with open(log_path, "a", encoding="utf-8") as f:
-            fcntl.flock(f.fileno(), fcntl.LOCK_EX)
-            try:
-                f.write(line)
-                f.flush()
-            finally:
-                fcntl.flock(f.fileno(), fcntl.LOCK_UN)
+        payload = (json.dumps(record, ensure_ascii=False) + "\n").encode("utf-8")
+        # Two-tier locking: in-process threading.Lock first (so same-process
+        # threads can't race on the OS lock and starve), then the OS-level
+        # lock for the cross-process case. Binary append keeps line endings
+        # LF on every OS so the JSONL file is byte-identical across
+        # platforms.
+        with _PROCESS_LOCK:
+            with open(log_path, "ab") as f:
+                _lock_exclusive(f.fileno())
+                try:
+                    f.write(payload)
+                    f.flush()
+                finally:
+                    _unlock(f.fileno())
     except Exception as exc:  # noqa: BLE001 — best-effort, see docstring
         print(
             f"[q-imgen] warning: history append failed: {exc}",

@@ -178,7 +178,10 @@ class AppendTests(unittest.TestCase):
     def test_unicode_prompts_round_trip(self):
         history.append({"prompt": "银发精灵 弓箭手 🏹", "status": "ok"})
         log = history.today_log_path()
-        record = json.loads(log.read_text().strip())
+        # Explicit UTF-8: history.append always writes UTF-8 bytes, but
+        # Path.read_text() defaults to the platform locale (cp936/GBK on
+        # zh-CN Windows) and would otherwise raise UnicodeDecodeError.
+        record = json.loads(log.read_text(encoding="utf-8").strip())
         self.assertEqual(record["prompt"], "银发精灵 弓箭手 🏹")
 
     def test_append_concurrent_writers_no_corruption(self):
