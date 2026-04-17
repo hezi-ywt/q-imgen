@@ -20,9 +20,25 @@ git log HEAD..origin/main --oneline
 
 ## 执行更新
 
+**重要：更新前务必保护 `user-notes.md`**。这是 agent 自维护的记忆层（用户偏好、经验、工作流），每个用户本地都不一样，不应该被远端的版本覆盖。
+
+安全的更新流程：
+
 ```bash
+# 1. 先检查 user-notes.md 是否有本地修改
+git status skills/q-imgen/references/user-notes.md
+
+# 2. 如果有本地修改，先 stash 或显式保留
+git stash push skills/q-imgen/references/user-notes.md -m "protect user notes"
+
+# 3. 拉取远端更新
 git pull origin main
+
+# 4. 恢复本地的 user-notes
+git stash pop    # 如果冲突，手动合并（通常保留本地内容）
 ```
+
+如果 `user-notes.md` 远端也有新增的通用条目（不是某个具体用户的），需要手动 merge — 通常把远端的新条目追加到本地版本里，不要反过来。
 
 大多数情况到这就够了 — skill 文件和库代码立即生效。
 

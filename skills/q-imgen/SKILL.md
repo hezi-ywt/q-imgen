@@ -18,7 +18,7 @@ metadata:
 - q-imgen **不负责** prompt 优化、启发式路由、工作流编排、角色设定管理
 - q-imgen 的 stdout 是**机器侧 JSON**,你负责把它整理成用户能看的消息
 
-**每次在本轮里第一次进入 q-imgen skill 时,必须先读** [references/user-notes.md](references/user-notes.md)。用户要求检查更新或你发现版本可能过旧时,按 [references/update-check.md](references/update-check.md) 操作。那里是这个 skill 的记忆层:用户偏好、项目偏好、真实踩坑和已有工作流,优先级高于你自己的临场猜测。任务做完后,如果这次新增了稳定偏好、有效经验或新坑,要**及时回写**进去,不要拖到以后。
+**每次在本轮里第一次进入 q-imgen skill 时,必须先读** [references/user-notes.md](references/user-notes.md)。用户要求检查更新或你发现版本可能过旧时,按 [references/update-check.md](references/update-check.md) 操作 —— **注意更新流程必须保护 `user-notes.md` 不被远端覆盖**(它是本地记忆层,每个用户不一样)。那里是这个 skill 的记忆层:用户偏好、项目偏好、真实踩坑和已有工作流,优先级高于你自己的临场猜测。任务做完后,如果这次新增了稳定偏好、有效经验或新坑,要**及时回写**进去,不要拖到以后。
 
 ## 首次使用
 
