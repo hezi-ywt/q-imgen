@@ -201,6 +201,25 @@ def _ext_from_content_type(content_type: str) -> str:
     return ".png"
 
 
+def _unique_output_path(out: Path, base: str, ext: str) -> Path:
+    """Return ``out/base+ext`` if free, else ``out/base_1+ext``, ``_2``, ...
+
+    Prevents silent overwrites when two runs (often from different channels
+    or models) would land on the same filename. Mirrors the helper in
+    ``gemini_client``; intentionally duplicated to keep the two protocol
+    clients independent (see CLAUDE.md "do not unify them").
+    """
+    candidate = out / f"{base}{ext}"
+    if not candidate.exists():
+        return candidate
+    counter = 1
+    while True:
+        candidate = out / f"{base}_{counter}{ext}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 def _save_response_images(
     images: list[dict], output_dir: str | Path, prefix: str
 ) -> list[str]:
@@ -239,7 +258,7 @@ def _save_response_images(
         else:
             continue
 
-        file_path = out / f"{prefix}_{index:03d}{ext}"
+        file_path = _unique_output_path(out, f"{prefix}_{index:03d}", ext)
         file_path.write_bytes(payload)
         saved.append(str(file_path))
     return saved

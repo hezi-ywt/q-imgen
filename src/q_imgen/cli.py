@@ -67,6 +67,13 @@ def _run_single(
     one history record after the call (success or failure) via
     ``history.append`` (best-effort, see history.py).
     """
+    # Default prefix to the channel name so two runs on different channels
+    # naturally land on disjoint filenames (e.g. ``gemini-a_000.png`` vs
+    # ``openai-a_000.png``). _save_*_path also auto-suffixes on collision,
+    # so even a same-channel rerun is non-destructive.
+    if not prefix:
+        prefix = channel.name
+
     base_result: dict[str, Any] = {
         "channel": channel.name,
         "model": channel.model,
@@ -218,6 +225,10 @@ def cmd_batch(args: argparse.Namespace) -> int:
             model=args.model,
         )
 
+    # Resolve the batch-wide prefix base now (channel name when not given)
+    # so every per-task prefix below is well-formed.
+    batch_prefix = args.prefix if args.prefix else active_channel.name
+
     results: list[dict[str, Any]] = []
     for i, task in enumerate(tasks):
         if not isinstance(task, dict):
@@ -253,7 +264,7 @@ def cmd_batch(args: argparse.Namespace) -> int:
             aspect_ratio=task.get("aspect_ratio", args.aspect_ratio),
             image_size=task.get("image_size"),
             output_dir=args.output_dir,
-            prefix=f"{args.prefix}_{i:03d}",
+            prefix=f"{batch_prefix}_{i:03d}",
         )
         result["task_index"] = i
         results.append(result)
@@ -398,7 +409,12 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument(
         "-o", "--output-dir", default="./output", help="Output directory"
     )
-    gen.add_argument("--prefix", default="img", help="Filename prefix")
+    gen.add_argument(
+        "--prefix",
+        default=None,
+        help="Filename prefix (default: the channel name, so switching "
+        "channels won't collide on disk)",
+    )
     gen.set_defaults(func=cmd_generate)
 
     # batch
@@ -414,7 +430,11 @@ def build_parser() -> argparse.ArgumentParser:
         help="Default aspect ratio when a task doesn't specify one",
     )
     bat.add_argument("-o", "--output-dir", default="./output", help="Output directory")
-    bat.add_argument("--prefix", default="batch", help="Filename prefix")
+    bat.add_argument(
+        "--prefix",
+        default=None,
+        help="Filename prefix (default: the channel name)",
+    )
     bat.add_argument(
         "--delay",
         type=float,
@@ -466,7 +486,26 @@ def build_parser() -> argparse.ArgumentParser:
     return parser
 
 
+def _force_utf8_streams() -> None:
+    """Force stdout/stderr to UTF-8 so Chinese prompts and JSON survive
+    pipes, redirects, and Windows consoles whose codepage is cp936/cp1252.
+
+    Without this, ``print(json.dumps(..., ensure_ascii=False))`` on Windows
+    can raise ``UnicodeEncodeError`` when the prompt contains CJK and the
+    process stdout is bound to a non-UTF-8 codepage.
+    """
+    for stream in (sys.stdout, sys.stderr):
+        reconfigure = getattr(stream, "reconfigure", None)
+        if reconfigure is not None:
+            try:
+                reconfigure(encoding="utf-8")
+            except (LookupError, ValueError):
+                # Fall back silently — non-text stream or already configured.
+                pass
+
+
 def main(argv: list[str] | None = None) -> int:
+    _force_utf8_streams()
     parser = build_parser()
     args = parser.parse_args(argv)
     return args.func(args)

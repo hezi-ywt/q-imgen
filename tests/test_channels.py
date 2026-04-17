@@ -1,6 +1,7 @@
 """Tests for channels.py: CRUD, persistence, default resolution."""
 
 import json
+import os
 import sys
 import tempfile
 import unittest
@@ -57,6 +58,12 @@ class ChannelStoreTests(unittest.TestCase):
         self.assertEqual(reloaded.channels["proxy-a"].model,
                          "gemini-3.1-flash-image-preview")
 
+    @unittest.skipIf(
+        os.name == "nt",
+        "POSIX file modes don't apply to NTFS — Path.chmod on Windows only "
+        "toggles the read-only bit. The 0o600 invariant is best-effort on "
+        "Windows by design.",
+    )
     def test_file_permissions_are_locked_down(self):
         store = ChannelStore.load()
         self._add_sample(store)

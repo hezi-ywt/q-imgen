@@ -256,6 +256,26 @@ def extract_images(response: dict) -> tuple[list[dict], list[str]]:
     return images, texts
 
 
+def _unique_output_path(out: Path, base: str, ext: str) -> Path:
+    """Return ``out/base+ext`` if free, else ``out/base_1+ext``, ``_2``, ...
+
+    Prevents silent overwrites when two runs (often from different channels
+    or models) would land on the same filename. The cost is one extra
+    ``stat`` per image, which is negligible next to the network call that
+    just completed. ``base`` is e.g. ``"img_000"``; suffix is appended
+    *before* the extension so file managers still detect the type.
+    """
+    candidate = out / f"{base}{ext}"
+    if not candidate.exists():
+        return candidate
+    counter = 1
+    while True:
+        candidate = out / f"{base}_{counter}{ext}"
+        if not candidate.exists():
+            return candidate
+        counter += 1
+
+
 def save_images(
     images: list[dict], output_dir: str | Path, prefix: str
 ) -> list[str]:
@@ -270,7 +290,7 @@ def save_images(
     saved: list[str] = []
     for i, img in enumerate(images):
         ext = ext_map.get(img["mime_type"], ".png")
-        file_path = out / f"{prefix}_{i:03d}{ext}"
+        file_path = _unique_output_path(out, f"{prefix}_{i:03d}", ext)
         file_path.write_bytes(base64.b64decode(img["data"]))
         saved.append(str(file_path))
     return saved
