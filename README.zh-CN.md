@@ -11,6 +11,7 @@ q-imgen generate "prompt" [--image ref.png ...] [--channel name] [-o ./out]
 q-imgen batch tasks.json [--channel name]
 q-imgen channel add <name> --protocol {gemini|openai} --base-url URL --api-key KEY --model M
 q-imgen channel list | show [name] | use <name> | rm <name>
+q-imgen status
 ```
 
 ## 安装
@@ -95,6 +96,18 @@ q-imgen batch tasks.json -o ./output --delay 1.0
   "ref_images": []
 }
 ```
+
+## 本地共享 Key 限流
+
+`q-imgen` 现在会在**当前机器本地**按 API key 做一个轻量并发上限控制。
+
+- 作用范围：只影响同一台机器上的本地 `q-imgen` 进程
+- 分组方式：按 API key 哈希；不同 channel 只要共用同一把真实 key，也会共享同一个上限
+- 默认上限：同一把共享 key 在本机默认允许 `10` 个并发请求
+- 状态文件：`~/.q-imgen/state.db`
+- 查看命令：`q-imgen status`
+
+这不是远端任务系统。它不会查询 provider 侧队列，也不会显示其他机器上的任务。
 
 失败输出示例（exit 1）：
 
@@ -197,7 +210,8 @@ q-imgen/
 │   ├── channels.py         # channels.json 的 CRUD
 │   ├── gemini_client.py    # Gemini 原生协议
 │   ├── openai_client.py    # OpenAI 兼容协议
-│   └── history.py          # 审计日志（JSONL）
+│   ├── history.py          # 审计日志（JSONL）
+│   └── limiter.py          # 本地共享 Key 并发限流
 ├── tests/
 └── skills/q-imgen/         # 面向 agent 的 skill
 ```

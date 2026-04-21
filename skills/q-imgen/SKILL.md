@@ -14,9 +14,23 @@ metadata:
 
 ## 核心定位
 
-- q-imgen 只负责 **generate / batch / channel / history** 这几件事
+- q-imgen 只负责 **generate / batch / channel / history / status** 这几件事
 - q-imgen **不负责** prompt 优化、启发式路由、工作流编排、角色设定管理
 - q-imgen 的 stdout 是**机器侧 JSON**,你负责把它整理成用户能看的消息
+
+## Agent 调用约定
+
+- agent 需要本机限流状态时,优先用 `q-imgen status --json`;人类排查时再用文本版 `q-imgen status`
+- `generate` 和 `batch` 的失败 JSON 现在都有稳定字段:
+  - `error_code`: `auth_error` / `rate_limit` / `provider_busy` / `invalid_model` / `invalid_request` / `network_error` / `no_image_returned` / `local_limiter_error` / `unknown_error`
+  - `retryable`: `true` 表示可以稍后重试、降并发、换 channel 再试; `false` 表示先修配置或输入
+- `batch` 顶层除了 `results` 之外,还会给 agent 可直接消费的 summary:
+  - `failed`
+  - `retryable_failures`
+  - `failed_task_indexes`
+  - `error_counts`
+- **输出目录纯洁性** 是硬约束: `-o/--output-dir` 下只放图片; history / limiter / status / 诊断信息都不写进输出目录
+- agent 默认优先看结构化字段,不要靠字符串模糊匹配错误原因,也不要假设输出目录里会有 sidecar JSON
 
 **每次在本轮里第一次进入 q-imgen skill 时,必须先读** [references/user-notes.md](references/user-notes.md)。用户要求检查更新或你发现版本可能过旧时,按 [references/update-check.md](references/update-check.md) 操作。那里是这个 skill 的记忆层:用户偏好、项目偏好、真实踩坑和已有工作流,优先级高于你自己的临场猜测。任务做完后,如果这次新增了稳定偏好、有效经验或新坑,要**及时回写**进去,不要拖到以后。
 
@@ -99,6 +113,7 @@ q-imgen channel list
 q-imgen channel show
 q-imgen channel show <name>
 q-imgen generate "..." --channel google
+q-imgen status
 ```
 
 没配渠道时,q-imgen 会自己报 `no channels configured`;这时按提示引导用户补 `channel add` 即可。

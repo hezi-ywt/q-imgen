@@ -2,6 +2,19 @@
 
 All notable changes to `q-imgen` will be documented in this file.
 
+## Unreleased
+
+### Added
+
+- **Local shared-key limiter**: CLI requests now acquire a lightweight local SQLite lease before making the remote API call. The limiter is keyed by API key hash, so different channels reusing the same real key share one concurrency cap on the same machine.
+- **Default local cap = 20**: shared keys now allow up to 20 concurrent local `q-imgen` requests on the same machine unless overridden later.
+- **`q-imgen status`**: shows current local limiter occupancy (`running` / `waiting`) per shared key on this machine.
+- **`limiter.py`**: new local state module backed by `~/.q-imgen/state.db`, with stale-lease cleanup for crashed processes.
+
+### Notes
+
+- This is **local-only** coordination. It does not query provider-side queue state and does not see usage from other machines.
+
 ## 0.4.0 - 2026-04-16
 
 ### Added

@@ -11,6 +11,7 @@ q-imgen generate "prompt" [--image ref.png ...] [--channel name] [-o ./out]
 q-imgen batch tasks.json [--channel name]
 q-imgen channel add <name> --protocol {gemini|openai} --base-url URL --api-key KEY --model M
 q-imgen channel list | show [name] | use <name> | rm <name>
+q-imgen status
 ```
 
 ## Install
@@ -132,6 +133,18 @@ Example error (exit 1):
 }
 ```
 
+## Local shared-key limiter
+
+`q-imgen` now applies a lightweight **local** concurrency cap per API key on the current machine.
+
+- Scope: only local `q-imgen` processes on the same machine
+- Keying: by API key hash, so different channels using the same real key share one cap
+- Default cap: `20` concurrent local requests per shared key
+- Storage: `~/.q-imgen/state.db`
+- Visibility: `q-imgen status`
+
+This is intentionally not a remote task system. It does not inspect provider-side queue state or outputs from other machines.
+
 ## Batch task format
 
 A JSON array of task objects, each inheriting channel/model from the CLI call:
@@ -197,7 +210,8 @@ q-imgen/
 │   ├── channels.py         # channels.json CRUD
 │   ├── gemini_client.py    # Gemini-native protocol
 │   ├── openai_client.py    # OpenAI-compat protocol
-│   └── history.py          # audit log (JSONL)
+│   ├── history.py          # audit log (JSONL)
+│   └── limiter.py          # local shared-key concurrency limiter
 ├── tests/
 └── skills/q-imgen/         # agent-facing skill
 ```
