@@ -54,6 +54,13 @@ class CliGenerateTests(unittest.TestCase):
             api_key="AIza-secret-12345",
             model="gemini-3.1-flash-image-preview",
         )
+        store.add(
+            "openai-images-a",
+            protocol="openai_images",
+            base_url="https://yunwu.ai/v1",
+            api_key="sk-images-123456",
+            model="gpt-image-2",
+        )
         store.set_default("openai-a")
         store.save()
 
@@ -125,6 +132,46 @@ class CliGenerateTests(unittest.TestCase):
         )
         payload = json.loads(out)
         self.assertEqual(payload["channel"], "gemini-a")
+
+    def test_generate_dispatches_to_openai_images_client(self):
+        with patch(
+            "q_imgen.cli.openai_images_client.generate",
+            return_value=[str(self.out_dir / "img_000.webp")],
+        ) as gen_mock:
+            code, out, err = self._run(
+                [
+                    "generate",
+                    "cat",
+                    "--channel",
+                    "openai-images-a",
+                    "--aspect-ratio",
+                    "2:3",
+                    "--quality",
+                    "high",
+                    "--background",
+                    "transparent",
+                    "--output-format",
+                    "webp",
+                    "--num-images",
+                    "2",
+                    "-o",
+                    str(self.out_dir),
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        kwargs = gen_mock.call_args.kwargs
+        self.assertEqual(kwargs["base_url"], "https://yunwu.ai/v1")
+        self.assertEqual(kwargs["api_key"], "sk-images-123456")
+        self.assertEqual(kwargs["model"], "gpt-image-2")
+        self.assertEqual(kwargs["aspect_ratio"], "2:3")
+        self.assertEqual(kwargs["quality"], "high")
+        self.assertEqual(kwargs["background"], "transparent")
+        self.assertEqual(kwargs["output_format"], "webp")
+        self.assertEqual(kwargs["num_images"], 2)
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["channel"], "openai-images-a")
 
     # ---- generate: errors hit stderr with [q-imgen] prefix ----
 
@@ -207,7 +254,7 @@ class CliGenerateTests(unittest.TestCase):
                 "add",
                 "new-one",
                 "--protocol",
-                "openai",
+                "openai_images",
                 "--base-url",
                 "https://new.example/v1",
                 "--api-key",
@@ -219,6 +266,7 @@ class CliGenerateTests(unittest.TestCase):
         self.assertEqual(code, 0)
         store = ChannelStore.load()
         self.assertIn("new-one", store.channels)
+        self.assertEqual(store.channels["new-one"].protocol, "openai_images")
 
     def test_channel_add_duplicate_fails_without_force(self):
         code, _, err = self._run(
@@ -271,6 +319,13 @@ class CliBatchTests(unittest.TestCase):
             api_key="sk-openai-123456",
             model="m0",
         )
+        store.add(
+            "openai-images-a",
+            protocol="openai_images",
+            base_url="https://yunwu.ai/v1",
+            api_key="sk-images-123456",
+            model="gpt-image-2",
+        )
         store.save()
 
     def test_batch_runs_each_task_and_reports_ok(self):
@@ -315,6 +370,72 @@ class CliBatchTests(unittest.TestCase):
         self.assertEqual(len(call_kwargs), 2)
         # Second task overrides aspect_ratio per-task.
         self.assertEqual(call_kwargs[1]["aspect_ratio"], "1:1")
+
+    def test_batch_forwards_openai_images_defaults_and_task_overrides(self):
+        task_file = Path(self.tmp.name) / "tasks.json"
+        task_file.write_text(
+            json.dumps(
+                [
+                    {"prompt": "cat"},
+                    {
+                        "prompt": "dog",
+                        "image_size": "1536x1024",
+                        "quality": "medium",
+                        "background": "opaque",
+                        "output_format": "png",
+                        "num_images": 1,
+                    },
+                ]
+            )
+        )
+
+        call_kwargs = []
+
+        def fake_generate(**kwargs):
+            call_kwargs.append(kwargs)
+            return [str(self.out_dir / f"fake_{len(call_kwargs):03d}.png")]
+
+        with (
+            patch("q_imgen.cli.openai_images_client.generate", side_effect=fake_generate),
+            patch("sys.stdout", new=io.StringIO()) as out,
+            patch("sys.stderr", new=io.StringIO()),
+            patch("q_imgen.cli.time.sleep"),
+        ):
+            code = cli.main(
+                [
+                    "batch",
+                    str(task_file),
+                    "--channel",
+                    "openai-images-a",
+                    "--image-size",
+                    "1024x1536",
+                    "--quality",
+                    "high",
+                    "--background",
+                    "transparent",
+                    "--output-format",
+                    "webp",
+                    "--num-images",
+                    "2",
+                    "-o",
+                    str(self.out_dir),
+                    "--delay",
+                    "0",
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["status"], "ok")
+        self.assertEqual(call_kwargs[0]["image_size"], "1024x1536")
+        self.assertEqual(call_kwargs[0]["quality"], "high")
+        self.assertEqual(call_kwargs[0]["background"], "transparent")
+        self.assertEqual(call_kwargs[0]["output_format"], "webp")
+        self.assertEqual(call_kwargs[0]["num_images"], 2)
+        self.assertEqual(call_kwargs[1]["image_size"], "1536x1024")
+        self.assertEqual(call_kwargs[1]["quality"], "medium")
+        self.assertEqual(call_kwargs[1]["background"], "opaque")
+        self.assertEqual(call_kwargs[1]["output_format"], "png")
+        self.assertEqual(call_kwargs[1]["num_images"], 1)
 
     def test_batch_partial_failure_returns_exit_0_with_status_partial(self):
         task_file = Path(self.tmp.name) / "tasks.json"

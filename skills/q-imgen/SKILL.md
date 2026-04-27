@@ -2,6 +2,7 @@
 name: q-imgen
 description: >
   Google Nano Banana / Gemini 生图 CLI。用于文生图、图生图、图像编辑、多图融合、角色一致性、批量出图、渠道切换、历史查询。用户提到 nanobanana / banana / 大香蕉 / Gemini 生图 / q-imgen / q-imagen / 图生图 / 多图融合 / 参考图 / 角色一致性 时必须使用。
+  Also covers OpenAI Images channels for Yunwu gpt-image-2 / gpt-image-2-all via q-imgen protocol `openai_images`.
 metadata:
   requires:
     bins: ["q-imgen"]
@@ -38,7 +39,7 @@ metadata:
 
 在执行任何生图命令前,先跑 `q-imgen channel list`。如果输出为空（没有配置任何渠道）,**主动引导用户完成首次配置**:
 
-1. 告诉用户需要一个 API 渠道才能使用,需要提供: `base_url`、`api_key`、`protocol`（gemini 或 openai）、`model`
+1. 告诉用户需要一个 API 渠道才能使用,需要提供: `base_url`、`api_key`、`protocol`（gemini、openai 或 openai_images）、`model`
 2. 用户提供信息后,执行:
 
 ```bash
@@ -116,6 +117,26 @@ q-imgen generate "..." --channel google
 q-imgen status
 ```
 
+Protocol selection:
+
+- `gemini`: Gemini-native endpoint, `POST {base_url}/models/{model}:generateContent`.
+- `openai`: OpenAI-compatible chat endpoint, `POST {base_url}/chat/completions`.
+- `openai_images`: OpenAI Images endpoint, `POST {base_url}/images/generations`. Use this for Yunwu `gpt-image-2` / `gpt-image-2-all`.
+
+Yunwu `gpt-image-2` channel example:
+
+```bash
+q-imgen channel add yunwu-gpt-image --protocol openai_images --base-url https://yunwu.ai/v1 --api-key <key> --model gpt-image-2
+```
+
+OpenAI Images-specific generation controls:
+
+```bash
+q-imgen generate "poster concept" --channel yunwu-gpt-image --image-size 1024x1536 --quality high --background transparent --output-format webp --num-images 2
+```
+
+For `openai_images`, `--image` becomes `input_images`; `--image-size` is sent as the Images API `size` field. `--quality`, `--background`, `--output-format`, and `--num-images` are passed through only when set.
+
 没配渠道时,q-imgen 会自己报 `no channels configured`;这时按提示引导用户补 `channel add` 即可。
 
 ## 常用流程
@@ -149,6 +170,10 @@ images = generate(
     channel="my-proxy",                  # None = 默认渠道
     aspect_ratio="1:1",
     image_size="1K",
+    quality=None,
+    background=None,
+    output_format=None,
+    num_images=None,
     timeout=300,
     max_retries=3,
 )
@@ -161,7 +186,7 @@ for img in images:
 
 - **输入**: `images` 接受文件路径和 `PIL.Image` 对象混合,脚本可以先用 Pillow 做预处理再传入
 - **输出**: 返回 `list[PIL.Image.Image]`,不保存文件、不写 history、不打印 — 纯函数,脚本自己决定怎么处理结果
-- **错误**: 失败抛异常（`ChannelError` / `GeminiError` / `OpenAIError`）,不返回 status dict
+- **错误**: 失败抛异常（`ChannelError` / `GeminiError` / `OpenAIError` / `OpenAIImagesError`）,不返回 status dict
 - **渠道**: 复用 CLI 的 channel 配置（`~/.q-imgen/channels.json`）,不用在脚本里写 base_url/api_key
 
 典型场景: 角色 × 场景的批量生图、golden anchor 风格对齐、带条件分支的生图流程。这些逻辑由脚本自己控制,q-imgen 只负责单次生成这个原子操作。

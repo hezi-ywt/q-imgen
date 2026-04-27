@@ -9,7 +9,7 @@
 ```bash
 q-imgen generate "prompt" [--image ref.png ...] [--channel name] [-o ./out]
 q-imgen batch tasks.json [--channel name]
-q-imgen channel add <name> --protocol {gemini|openai} --base-url URL --api-key KEY --model M
+q-imgen channel add <name> --protocol {gemini|openai|openai_images} --base-url URL --api-key KEY --model M
 q-imgen channel list | show [name] | use <name> | rm <name>
 q-imgen status
 ```
@@ -37,6 +37,7 @@ q-imgen 内部提供两个 client：
 |---|---|---|
 | `gemini` | `POST {base_url}/models/{model}:generateContent` | Google 原生 Gemini API（自动识别 `googleapis.com` 并使用 `?key=` 鉴权），或任何兼容 Gemini payload 格式的代理（使用 Bearer 鉴权） |
 | `openai` | `POST {base_url}/chat/completions` | 以 OpenAI chat schema 暴露图像生成能力的兼容网关（one-api / new-api / litellm / 各类代理 等） |
+| `openai_images` | `POST {base_url}/images/generations` | OpenAI Images-compatible gateways, especially Yunwu `gpt-image-2`; supports `input_images`, `quality`, `background`, `output_format`, `n`, and b64/URL responses |
 
 添加 channel 时选对协议即可；后续调用时 q-imgen 会自动分发。
 
@@ -62,6 +63,13 @@ q-imgen channel add google-native \
   --api-key AIzaSy... \
   --model gemini-3.1-flash-image-preview
 
+# Add an OpenAI Images channel (Yunwu gpt-image-2)
+q-imgen channel add yunwu-gpt-image \
+  --protocol openai_images \
+  --base-url https://yunwu.ai/v1 \
+  --api-key sk-xxx \
+  --model gpt-image-2
+
 # 切换默认 channel
 q-imgen channel use google-native
 
@@ -71,6 +79,10 @@ q-imgen generate "..." --channel proxy-a
 # 单图编辑 / 多图融合
 q-imgen generate "change kimono to blue" --image input.png
 q-imgen generate "merge A's hair with B's style" --image a.png --image b.png
+
+# OpenAI Images-specific controls
+q-imgen generate "poster concept" --channel yunwu-gpt-image \
+  --image-size 1024x1536 --quality high --background transparent --output-format webp --num-images 2
 
 # 批量生成
 q-imgen batch tasks.json -o ./output --delay 1.0
@@ -140,6 +152,12 @@ q-imgen batch tasks.json -o ./output --delay 1.0
       "base_url": "https://generativelanguage.googleapis.com/v1beta",
       "api_key": "AIza...",
       "model": "gemini-3.1-flash-image-preview"
+    },
+    "yunwu-gpt-image": {
+      "protocol": "openai_images",
+      "base_url": "https://yunwu.ai/v1",
+      "api_key": "sk-...",
+      "model": "gpt-image-2"
     }
   }
 }
@@ -153,7 +171,8 @@ q-imgen batch tasks.json -o ./output --delay 1.0
 [
   { "prompt": "silver elf archer, magic forest", "aspect_ratio": "2:3", "image_size": "2K" },
   { "prompt": "cat-ear boy stargazing", "aspect_ratio": "16:9" },
-  { "prompt": "change kimono to blue", "images": ["input.png"], "aspect_ratio": "3:4" }
+  { "prompt": "change kimono to blue", "images": ["input.png"], "aspect_ratio": "3:4" },
+  { "prompt": "gpt-image-2 poster", "image_size": "1024x1536", "quality": "high", "output_format": "webp", "num_images": 2 }
 ]
 ```
 
@@ -183,7 +202,7 @@ images[0].save("output.png")
 - 返回 `list[PIL.Image.Image]` — 不保存文件、不写 history、不打印
 - `images` 参数接受文件路径（`str`/`Path`）和 `PIL.Image` 对象混合
 - 复用 CLI 的 channel 配置（`~/.q-imgen/channels.json`）
-- 失败时抛异常（`ChannelError` / `GeminiError` / `OpenAIError`）
+- 失败时抛异常（`ChannelError` / `GeminiError` / `OpenAIError` / `OpenAIImagesError`）
 
 **CLI 还是库？** CLI 适合 agent 调用、单次生成、batch 任务、shell 管道。库适合需要在生成前后处理图片、串联多次生成结果、或自定义循环逻辑的 Python 脚本。
 
@@ -194,7 +213,7 @@ q-imgen 选择做一个可靠的积木块，把搭积木的自由留给使用它
 - **原子原语，不做框架**。只做一件事：发 prompt、带参考图、拿回图片。批量、循环、prompt 优化、风格策略、工作流编排全部属于调用方（agent 或脚本），q-imgen 不碰。
 - **两个入口，同一个内核**。CLI 面向 agent 和 shell（stdout JSON、exit 0/1），Python 库面向脚本（返回 `PIL.Image`、失败抛异常）。选择权在调用方；两者共享同一套协议 client。
 - **channel 是唯一的路由抽象**。不做启发式选择，不做 env var 优先级链。一个 `channels.json` 就是全部真相，调用方显式传 `--channel`。
-- **两个协议不统一**。Gemini 和 OpenAI 的 payload 形状根本不兼容，强行抽象只会造成沉默失真。两个 client 独立演化，共同点只有”返回结果或抛异常”这一个接口。
+- **协议不强行统一**。Gemini、OpenAI chat、OpenAI Images 的 payload 形状根本不兼容，强行抽象只会造成沉默失真。各 client 独立演化，共同点只有”返回结果或抛异常”这一个接口。
 - **观察可以，编排不行**。history 日志是唯一允许的”状态”——它只记录做过什么，不决定下一步做什么。而且是 best-effort 的：日志失败不影响生图。
 - **在关键位置保持 agent-safe I/O**。`generate` / `batch` 的 stdout 是数据，stderr 是诊断，退出码是 0/1。channel 管理命令保持人类可读，只有 `channel show` 返回 JSON。
 - **API key 安全**。所有错误消息都会清洗 live key 和 `Bearer` token，再向外暴露。
@@ -209,7 +228,8 @@ q-imgen/
 │   ├── cli.py              # argparse 入口与子命令处理
 │   ├── channels.py         # channels.json 的 CRUD
 │   ├── gemini_client.py    # Gemini 原生协议
-│   ├── openai_client.py    # OpenAI 兼容协议
+│   ├── openai_client.py    # OpenAI chat 兼容协议
+│   ├── openai_images_client.py # OpenAI Images 协议
 │   ├── history.py          # 审计日志（JSONL）
 │   └── limiter.py          # 本地共享 Key 并发限流
 ├── tests/

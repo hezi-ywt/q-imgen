@@ -30,6 +30,7 @@ from . import gemini_client
 from . import history
 from . import limiter
 from . import openai_client
+from . import openai_images_client
 
 
 # ---- small helpers ----
@@ -90,6 +91,7 @@ def _classify_error(message: str) -> tuple[str, bool]:
         "reference image not found" in lowered
         or "unsupported image type" in lowered
         or "missing required field" in lowered
+        or "unknown parameter" in lowered
         or "must be a string" in lowered
         or "task is not an object" in lowered
         or "unknown protocol" in lowered
@@ -141,6 +143,10 @@ def _run_single(
     reference_images: list[str] | None,
     aspect_ratio: str,
     image_size: str | None,
+    quality: str | None,
+    background: str | None,
+    output_format: str | None,
+    num_images: int | None,
     output_dir: str,
     prefix: str,
 ) -> dict[str, Any]:
@@ -226,6 +232,25 @@ def _run_single(
                 )
                 result = {**base_result, "status": "ok", "images": saved}
 
+            elif channel.protocol == "openai_images":
+                saved = openai_images_client.generate(
+                    prompt=prompt,
+                    base_url=channel.base_url,
+                    api_key=channel.api_key,
+                    model=channel.model,
+                    reference_images=reference_images,
+                    aspect_ratio=aspect_ratio,
+                    image_size=image_size,
+                    quality=quality,
+                    background=background,
+                    output_format=output_format,
+                    num_images=num_images,
+                    output_dir=output_dir,
+                    prefix=prefix,
+                    timeout=300,
+                )
+                result = {**base_result, "status": "ok", "images": saved}
+
             else:
                 result = _error_result(
                     base_result,
@@ -235,6 +260,7 @@ def _run_single(
     except (
         gemini_client.GeminiError,
         openai_client.OpenAIError,
+        openai_images_client.OpenAIImagesError,
         limiter.LimiterError,
     ) as exc:
         result = _error_result(base_result, str(exc))
@@ -299,6 +325,10 @@ def _run_bench_stage(
             reference_images=None,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            quality=None,
+            background=None,
+            output_format=None,
+            num_images=None,
             output_dir=str(stage_dir),
             prefix=f"s{index:02d}",
         )
@@ -388,6 +418,10 @@ def cmd_generate(args: argparse.Namespace) -> int:
         reference_images=args.images,
         aspect_ratio=args.aspect_ratio,
         image_size=args.image_size,
+        quality=args.quality,
+        background=args.background,
+        output_format=args.output_format,
+        num_images=args.num_images,
         output_dir=args.output_dir,
         prefix=args.prefix,
     )
@@ -463,7 +497,11 @@ def cmd_batch(args: argparse.Namespace) -> int:
             prompt=task["prompt"],
             reference_images=task.get("images"),
             aspect_ratio=task.get("aspect_ratio", args.aspect_ratio),
-            image_size=task.get("image_size"),
+            image_size=task.get("image_size", args.image_size),
+            quality=task.get("quality", args.quality),
+            background=task.get("background", args.background),
+            output_format=task.get("output_format", args.output_format),
+            num_images=task.get("num_images", args.num_images),
             output_dir=args.output_dir,
             prefix=f"{batch_prefix}_{i:03d}",
         )
@@ -695,7 +733,18 @@ def build_parser() -> argparse.ArgumentParser:
     gen.add_argument("--model", help="Override the channel's model for this call")
     gen.add_argument("--aspect-ratio", default="3:4", help="Aspect ratio (default: 3:4)")
     gen.add_argument(
-        "--image-size", default=None, help="Image size hint: 512, 1K, 2K, 4K"
+        "--image-size",
+        default=None,
+        help="Image size hint. openai_images accepts sizes like 1024x1536.",
+    )
+    gen.add_argument("--quality", default=None, help="openai_images quality")
+    gen.add_argument("--background", default=None, help="openai_images background")
+    gen.add_argument("--output-format", default=None, help="openai_images output format")
+    gen.add_argument(
+        "--num-images",
+        type=int,
+        default=None,
+        help="Number of images for openai_images",
     )
     gen.add_argument(
         "-o", "--output-dir", default="./output", help="Output directory"
@@ -720,6 +769,20 @@ def build_parser() -> argparse.ArgumentParser:
         default="3:4",
         help="Default aspect ratio when a task doesn't specify one",
     )
+    bat.add_argument(
+        "--image-size",
+        default=None,
+        help="Default image size when a task doesn't specify one",
+    )
+    bat.add_argument("--quality", default=None, help="Default openai_images quality")
+    bat.add_argument("--background", default=None, help="Default openai_images background")
+    bat.add_argument("--output-format", default=None, help="Default openai_images output format")
+    bat.add_argument(
+        "--num-images",
+        type=int,
+        default=None,
+        help="Default number of images for openai_images tasks",
+    )
     bat.add_argument("-o", "--output-dir", default="./output", help="Output directory")
     bat.add_argument(
         "--prefix",
@@ -743,7 +806,7 @@ def build_parser() -> argparse.ArgumentParser:
     ch_add.add_argument(
         "--protocol",
         required=True,
-        choices=["gemini", "openai"],
+        choices=["gemini", "openai", "openai_images"],
         help="API protocol this channel speaks",
     )
     ch_add.add_argument("--base-url", required=True)

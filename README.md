@@ -9,7 +9,7 @@ One primitive, many channels. Each channel is a complete route to an image gener
 ```
 q-imgen generate "prompt" [--image ref.png ...] [--channel name] [-o ./out]
 q-imgen batch tasks.json [--channel name]
-q-imgen channel add <name> --protocol {gemini|openai} --base-url URL --api-key KEY --model M
+q-imgen channel add <name> --protocol {gemini|openai|openai_images} --base-url URL --api-key KEY --model M
 q-imgen channel list | show [name] | use <name> | rm <name>
 q-imgen status
 ```
@@ -29,14 +29,15 @@ No-install fallback:
 PYTHONPATH=src python -m q_imgen --help
 ```
 
-## Two protocols, one CLI
+## Protocols
 
-q-imgen ships two clients under the hood:
+q-imgen ships independent protocol clients under the hood:
 
 | Protocol | Endpoint | Use it for |
 |---|---|---|
 | `gemini` | `POST {base_url}/models/{model}:generateContent` | Google's native Gemini API (auto-detects `googleapis.com` and uses `?key=` auth) or any proxy that speaks the Gemini payload format (uses Bearer auth) |
 | `openai` | `POST {base_url}/chat/completions` | OpenAI-compatible gateways (one-api / new-api / litellm / various proxies / etc.) that expose image generation under the chat schema |
+| `openai_images` | `POST {base_url}/images/generations` | OpenAI Images-compatible gateways such as Yunwu `gpt-image-2`, with `input_images`, `quality`, `background`, `output_format`, `n`, and b64/URL response support |
 
 Pick the right one when adding a channel; q-imgen dispatches automatically.
 
@@ -62,6 +63,13 @@ q-imgen channel add google-native \
   --api-key AIzaSy... \
   --model gemini-3.1-flash-image-preview
 
+# Add an OpenAI Images channel (Yunwu gpt-image-2)
+q-imgen channel add yunwu-gpt-image \
+  --protocol openai_images \
+  --base-url https://yunwu.ai/v1 \
+  --api-key sk-xxx \
+  --model gpt-image-2
+
 # Switch default
 q-imgen channel use google-native
 
@@ -71,6 +79,10 @@ q-imgen generate "..." --channel proxy-a
 # Image edit / multi-image fusion
 q-imgen generate "change kimono to blue" --image input.png
 q-imgen generate "merge A's hair with B's style" --image a.png --image b.png
+
+# OpenAI Images-specific controls
+q-imgen generate "poster concept" --channel yunwu-gpt-image \
+  --image-size 1024x1536 --quality high --background transparent --output-format webp --num-images 2
 
 # Batch
 q-imgen batch tasks.json -o ./output --delay 1.0
@@ -128,6 +140,12 @@ Example error (exit 1):
       "base_url": "https://generativelanguage.googleapis.com/v1beta",
       "api_key": "AIza...",
       "model": "gemini-3.1-flash-image-preview"
+    },
+    "yunwu-gpt-image": {
+      "protocol": "openai_images",
+      "base_url": "https://yunwu.ai/v1",
+      "api_key": "sk-...",
+      "model": "gpt-image-2"
     }
   }
 }
@@ -139,7 +157,7 @@ Example error (exit 1):
 
 - Scope: only local `q-imgen` processes on the same machine
 - Keying: by API key hash, so different channels using the same real key share one cap
-- Default cap: `20` concurrent local requests per shared key
+- Default cap: `10` concurrent local requests per shared key
 - Storage: `~/.q-imgen/state.db`
 - Visibility: `q-imgen status`
 
@@ -153,7 +171,8 @@ A JSON array of task objects, each inheriting channel/model from the CLI call:
 [
   { "prompt": "silver elf archer, magic forest", "aspect_ratio": "2:3", "image_size": "2K" },
   { "prompt": "cat-ear boy stargazing", "aspect_ratio": "16:9" },
-  { "prompt": "change kimono to blue", "images": ["input.png"], "aspect_ratio": "3:4" }
+  { "prompt": "change kimono to blue", "images": ["input.png"], "aspect_ratio": "3:4" },
+  { "prompt": "gpt-image-2 poster", "image_size": "1024x1536", "quality": "high", "output_format": "webp", "num_images": 2 }
 ]
 ```
 
@@ -183,7 +202,7 @@ images[0].save("output.png")
 - Returns `list[PIL.Image.Image]` — no files saved, no history, no printing
 - `images` accepts file paths (`str`/`Path`) and `PIL.Image` objects mixed
 - Reuses CLI channel config (`~/.q-imgen/channels.json`)
-- Raises `ChannelError` / `GeminiError` / `OpenAIError` on failure
+- Raises `ChannelError` / `GeminiError` / `OpenAIError` / `OpenAIImagesError` on failure
 
 **When to use CLI vs library:** CLI for agent calls, one-shot generation, batch jobs, shell pipelines. Library for Python scripts that need to process images before/after generation, chain outputs between tasks, or control loop logic.
 
@@ -194,7 +213,7 @@ q-imgen chooses to be a reliable building block, leaving the freedom of assembly
 - **Atomic primitive, not a framework.** One job: send a prompt with reference images, get back pictures. Batching, loops, prompt optimization, style strategy, and workflow orchestration all belong to the caller — agent or script — not to q-imgen.
 - **Two entry points, one core.** CLI faces agents and shell (stdout JSON, exit 0/1). Python library faces scripts (returns `PIL.Image`, raises on failure). The caller decides which fits; both share the same protocol clients underneath.
 - **Channels are the only routing abstraction.** No heuristic selection, no env-var priority chains. One `channels.json` is the single source of truth; the caller passes `--channel` explicitly.
-- **Two protocols, intentionally not unified.** Gemini and OpenAI payload shapes are genuinely incompatible. Forcing an abstraction layer would cause silent data loss. The two clients evolve independently; their only shared contract is "return results or raise an exception."
+- **Protocols are intentionally not unified.** Gemini, OpenAI chat, and OpenAI Images payload shapes are genuinely incompatible. Forcing an abstraction layer would cause silent data loss. The clients evolve independently; their only shared contract is "return results or raise an exception."
 - **Observation is allowed, orchestration is not.** The history log is the only "state" q-imgen keeps — it records what happened, never decides what to do next. And it's best-effort: a logging failure never blocks image generation.
 - **Agent-safe I/O where it matters.** `generate` / `batch` stdout = data, stderr = diagnostics, exit code = 0/1. Channel-management commands stay human-readable except `channel show`, which returns JSON.
 - **API key safety.** All error messages scrub live keys and `Bearer` tokens before surfacing them.
@@ -209,7 +228,8 @@ q-imgen/
 │   ├── cli.py              # argparse entry, subcommand handlers
 │   ├── channels.py         # channels.json CRUD
 │   ├── gemini_client.py    # Gemini-native protocol
-│   ├── openai_client.py    # OpenAI-compat protocol
+│   ├── openai_client.py    # OpenAI-compat chat protocol
+│   ├── openai_images_client.py # OpenAI Images protocol
 │   ├── history.py          # audit log (JSONL)
 │   └── limiter.py          # local shared-key concurrency limiter
 ├── tests/

@@ -10,6 +10,10 @@
 | `images` | — | 参考图路径数组(1 张 = 图生图,多张 = 融合,最多 14) |
 | `aspect_ratio` | — | 不写就用 CLI `--aspect-ratio` 的默认 |
 | `image_size` | — | `512` / `1K` / `2K` / `4K`,不写就让模型决定 |
+| `quality` | — | `openai_images` only; passed to Images API `quality` |
+| `background` | — | `openai_images` only; passed to Images API `background` |
+| `output_format` | — | `openai_images` only; passed to Images API `output_format` |
+| `num_images` | — | `openai_images` only; passed to Images API `n` |
 
 ## 示例
 
@@ -28,6 +32,14 @@
     "prompt": "把和服改成蓝色",
     "images": ["input.png"],
     "aspect_ratio": "3:4"
+  },
+  {
+    "prompt": "gpt-image-2 poster concept",
+    "image_size": "1024x1536",
+    "quality": "high",
+    "background": "transparent",
+    "output_format": "webp",
+    "num_images": 2
   }
 ]
 ```
@@ -37,6 +49,7 @@
 ```bash
 q-imgen batch tasks.json -o ./output --delay 1.0
 q-imgen batch tasks.json --channel google --model gemini-3-pro-image-preview
+q-imgen batch tasks.json --channel yunwu-gpt-image --image-size 1024x1536 --quality high --output-format webp --num-images 2
 ```
 
 CLI 层面的 `--channel` / `--model` 对整个 batch 生效(不能按 task 覆盖)。如果你需要**有些 task 用 Nano Banana 2、有些用 Nano Banana Pro**,拆成两个 batch 文件分别跑。

@@ -34,7 +34,7 @@ from typing import Iterable
 CONFIG_DIR = Path.home() / ".q-imgen"
 CHANNELS_FILE = CONFIG_DIR / "channels.json"
 
-VALID_PROTOCOLS: frozenset[str] = frozenset({"gemini", "openai"})
+VALID_PROTOCOLS: frozenset[str] = frozenset({"gemini", "openai", "openai_images"})
 
 
 class ChannelError(Exception):
@@ -47,7 +47,7 @@ class ChannelError(Exception):
 @dataclass(frozen=True)
 class Channel:
     name: str
-    protocol: str    # "gemini" or "openai"
+    protocol: str    # "gemini", "openai", or "openai_images"
     base_url: str
     api_key: str
     model: str
@@ -201,7 +201,8 @@ class ChannelStore:
         if not self.channels:
             raise ChannelError(
                 "no channels configured. Run `q-imgen channel add <name> "
-                "--protocol {gemini|openai} --base-url URL --api-key KEY --model M` "
+                "--protocol {gemini|openai|openai_images} "
+                "--base-url URL --api-key KEY --model M` "
                 "to create one."
             )
 

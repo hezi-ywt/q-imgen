@@ -25,11 +25,12 @@ Version lives only in `pyproject.toml` (read at runtime via `importlib.metadata`
 
 ## Architecture
 
-Atomic image-generation CLI with channel-based endpoint routing. Two protocols (`gemini`, `openai`) are **intentionally kept as independent clients** — their payload shapes are genuinely incompatible. Do not unify them.
+Atomic image-generation CLI with channel-based endpoint routing. Protocols (`gemini`, `openai`, `openai_images`) are **intentionally kept as independent clients** — their payload shapes are genuinely incompatible. Do not unify them.
 
 ```
-cli.py  ──►  _run_single()  ──┬──►  gemini_client.generate()   POST /models/{m}:generateContent
-     │                         └──►  openai_client.generate()   POST /chat/completions
+cli.py  ──►  _run_single()  ──┬──►  gemini_client.generate()        POST /models/{m}:generateContent
+     │                         ├──►  openai_client.generate()        POST /chat/completions
+     │                         └──►  openai_images_client.generate() POST /images/generations
      │
      ├──►  channels.py   ChannelStore (~/.q-imgen/channels.json, chmod 600)
      └──►  history.py    best-effort JSONL append (~/.q-imgen/history/YYYY-MM-DD.jsonl)
@@ -47,7 +48,8 @@ Two entry points: **CLI** (`cli.py`) saves images to disk and outputs JSON; **Py
 - **`cli.py`**: argparse entry, subcommand handlers (`generate`, `batch`, `channel add/list/show/use/rm`, `history`), output JSON assembly, the `_run_single` dispatcher.
 - **`channels.py`**: `Channel` dataclass + `ChannelStore` CRUD. First channel added becomes default. `resolve(name)` returns named or default channel.
 - **`gemini_client.py`**: Gemini-native POST. Auth branches on `googleapis.com` in URL (`?key=` vs `Bearer`). Parses both camelCase and snake_case field names from response. `generate_images()` returns `list[PIL.Image]`.
-- **`openai_client.py`**: OpenAI-compat POST. Scans **3 response shapes in parallel** (explicit `images[]`, markdown `![](url)` in content, vision-style parts array) then dedupes by URL. `generate_images()` returns `list[PIL.Image]`. Has retry logic for 429/5xx.
+- **`openai_client.py`**: OpenAI-compat chat POST. Scans **3 response shapes in parallel** (explicit `images[]`, markdown `![](url)` in content, vision-style parts array) then dedupes by URL. `generate_images()` returns `list[PIL.Image]`. Has retry logic for 429/5xx.
+- **`openai_images_client.py`**: OpenAI Images POST. Sends optional `input_images`, `quality`, `background`, `output_format`, and `n`. Supports b64 and URL responses. `generate_images()` returns `list[PIL.Image]`. Has retry logic for 429/5xx.
 - **`history.py`**: Append-only audit log. Uses `fcntl.flock` for concurrent safety. Failures go to stderr only, never raise — the image is already generated.
 
 ## I/O Contract (agent-critical)
@@ -63,7 +65,7 @@ Preserve this contract on every code path. Agents parse stdout as JSON.
 ## Python Library API
 
 ```python
-from q_imgen import generate, Channel, ChannelError, GeminiError, OpenAIError
+from q_imgen import generate, Channel, ChannelError, GeminiError, OpenAIError, OpenAIImagesError
 
 images = generate("prompt", images=["ref.png", pil_obj], channel="name")
 # Returns list[PIL.Image.Image], raises on failure
@@ -81,13 +83,14 @@ These are tested and must not regress:
 1. OpenAI: `image_size=None` is **omitted** from payload, not serialized as null
 2. OpenAI: HTTP errors sanitize api_key before raising `OpenAIError`
 3. OpenAI: 3-shape parallel scan with dedup, not first-wins
-4. Gemini: `googleapis.com` → `?key=` auth, others → `Bearer` auth
-5. Gemini: 4xx (except 429) = no retry; 429/5xx = retry
-6. Channels: `channels.json` always chmod 600
-7. Channels: stale default silently dropped on load
-8. CLI: empty channel store error includes `channel add` hint text
-9. History: append failures → stderr warning, never raise
-10. History: concurrent writes use `fcntl.flock`, no interleaving
+4. OpenAI Images: calls `/images/generations`, maps `--image` to `input_images`, handles b64/URL responses, and forwards Images-specific params only when set
+5. Gemini: `googleapis.com` → `?key=` auth, others → `Bearer` auth
+6. Gemini: 4xx (except 429) = no retry; 429/5xx = retry
+7. Channels: `channels.json` always chmod 600
+8. Channels: stale default silently dropped on load
+9. CLI: empty channel store error includes `channel add` hint text
+10. History: append failures → stderr warning, never raise
+11. History: concurrent writes use `fcntl.flock`, no interleaving
 
 ## Testing
 
