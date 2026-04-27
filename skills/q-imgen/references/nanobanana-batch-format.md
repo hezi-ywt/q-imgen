@@ -15,6 +15,21 @@
 | `output_format` | — | `openai_images` only; passed to Images API `output_format` |
 | `num_images` | — | `openai_images` only; passed to Images API `n` |
 
+OpenAI Images recommended sizes for agents:
+
+| `image_size` | Use |
+|---|---|
+| `1024x1024` | square / 正方形 |
+| `1536x1024` | landscape / 横版 |
+| `1024x1536` | portrait / 竖版 |
+| `2048x2048` | 2K square / 2K 正方形 |
+| `2048x1152` | 2K landscape / 2K 横版 |
+| `3840x2160` | 4K landscape / 4K 横版 |
+| `2160x3840` | 4K portrait / 4K 竖版 |
+| `auto` | provider default / 默认 |
+
+Strict OpenAI Images size rules: max edge <= 3840px; width and height must both be multiples of 16px; long edge / short edge <= 3:1; total pixels must be between 655360 and 8294400.
+
 For `openai_images`, `image_size` shortcuts are normalized before the request. Example: `aspect_ratio: "1:1", image_size: "2K"` sends `size: "2048x2048"`; `aspect_ratio: "3:4", image_size: "2K"` sends `size: "1536x2048"`.
 
 ## 示例

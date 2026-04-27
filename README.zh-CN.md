@@ -93,6 +93,21 @@ q-imgen batch tasks.json -o ./output --delay 1.0
 
 ## 输出约定
 
+OpenAI Images size reference for agents:
+
+| Size | Use |
+|---|---|
+| `1024x1024` | square |
+| `1536x1024` | landscape |
+| `1024x1536` | portrait |
+| `2048x2048` | 2K square |
+| `2048x1152` | 2K landscape |
+| `3840x2160` | 4K landscape |
+| `2160x3840` | 4K portrait |
+| `auto` | provider default |
+
+Strict OpenAI Images size rules: max edge <= 3840px; both dimensions must be multiples of 16px; long edge / short edge <= 3:1; total pixels must be between 655360 and 8294400.
+
 - **`generate` / `batch` 的 stdout**：每次调用输出一个 JSON 对象，适合 agent 或脚本解析
 - **`channel add/list/use/rm` 的 stdout**：面向人类阅读的状态文本
 - **`channel show` 的 stdout**：输出一个 JSON 对象

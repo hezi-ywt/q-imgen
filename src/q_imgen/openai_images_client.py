@@ -40,8 +40,14 @@ _SIZE_SHORTCUT_TO_LONG_EDGE = {
     "512": 512,
     "1K": 1024,
     "2K": 2048,
-    "4K": 4096,
+    "4K": 3840,
 }
+
+_MIN_PIXELS = 655_360
+_MAX_PIXELS = 8_294_400
+_MAX_SIZE_EDGE = 3840
+_SIZE_MULTIPLE = 16
+_MAX_ASPECT_RATIO = 3.0
 
 
 class OpenAIImagesError(Exception):
@@ -73,11 +79,52 @@ def _size_from_shortcut(shortcut: str, aspect_ratio: str) -> str | None:
 
 def _size_for(*, aspect_ratio: str, image_size: str | None) -> str:
     if image_size:
+        if image_size.strip().lower() == "auto":
+            return "auto"
         shortcut_size = _size_from_shortcut(image_size, aspect_ratio)
         if shortcut_size:
-            return shortcut_size
-        return image_size
-    return _ASPECT_RATIO_TO_SIZE.get(aspect_ratio.strip(), "1024x1536")
+            return _validate_size(shortcut_size)
+        return _validate_size(image_size)
+    return _validate_size(_ASPECT_RATIO_TO_SIZE.get(aspect_ratio.strip(), "1024x1536"))
+
+
+def _validate_size(size: str) -> str:
+    width_text, sep, height_text = size.lower().partition("x")
+    if not sep:
+        raise OpenAIImagesError(
+            "invalid image_size for openai_images: use auto or WIDTHxHEIGHT "
+            "(for example 1024x1536, 2048x2048, 3840x2160)"
+        )
+    try:
+        width = int(width_text.strip())
+        height = int(height_text.strip())
+    except ValueError as exc:
+        raise OpenAIImagesError(f"invalid image_size for openai_images: {size}") from exc
+
+    if width <= 0 or height <= 0:
+        raise OpenAIImagesError(f"invalid image_size for openai_images: {size}")
+    if max(width, height) > _MAX_SIZE_EDGE:
+        raise OpenAIImagesError(
+            f"invalid image_size for openai_images: {size} exceeds max edge "
+            f"{_MAX_SIZE_EDGE}px"
+        )
+    if width % _SIZE_MULTIPLE != 0 or height % _SIZE_MULTIPLE != 0:
+        raise OpenAIImagesError(
+            f"invalid image_size for openai_images: {size} must use dimensions "
+            f"that are multiples of {_SIZE_MULTIPLE}px"
+        )
+    ratio = max(width, height) / min(width, height)
+    if ratio > _MAX_ASPECT_RATIO:
+        raise OpenAIImagesError(
+            f"invalid image_size for openai_images: {size} exceeds 3:1 aspect limit"
+        )
+    pixels = width * height
+    if pixels < _MIN_PIXELS or pixels > _MAX_PIXELS:
+        raise OpenAIImagesError(
+            f"invalid image_size for openai_images: {size} pixel count must be "
+            f"between {_MIN_PIXELS} and {_MAX_PIXELS}"
+        )
+    return f"{width}x{height}"
 
 
 def _encode_image_data_url(path: str | Path | Image.Image) -> str:

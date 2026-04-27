@@ -138,6 +138,26 @@ q-imgen generate "poster concept" --channel yunwu-gpt-image --image-size 1024x15
 For `openai_images`, `--image` becomes `input_images`; `--image-size` is sent as the Images API `size` field. `--quality`, `--background`, `--output-format`, and `--num-images` are passed through only when set.
 For `openai_images`, size shortcuts are normalized before the request: `--aspect-ratio 1:1 --image-size 2K` sends `size: "2048x2048"`; `--aspect-ratio 3:4 --image-size 2K` sends `size: "1536x2048"`.
 
+OpenAI Images size reference for agents:
+
+| Size | Use |
+|---|---|
+| `1024x1024` | square / 正方形 |
+| `1536x1024` | landscape / 横版 |
+| `1024x1536` | portrait / 竖版 |
+| `2048x2048` | 2K square / 2K 正方形 |
+| `2048x1152` | 2K landscape / 2K 横版 |
+| `3840x2160` | 4K landscape / 4K 横版 |
+| `2160x3840` | 4K portrait / 4K 竖版 |
+| `auto` | provider default / 默认 |
+
+Strict OpenAI Images size rules:
+
+- Max edge <= 3840px.
+- Width and height must both be multiples of 16px.
+- Long edge / short edge <= 3:1.
+- Total pixels must be between 655360 and 8294400.
+
 没配渠道时,q-imgen 会自己报 `no channels configured`;这时按提示引导用户补 `channel add` 即可。
 
 ## 常用流程

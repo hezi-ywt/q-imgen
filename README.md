@@ -91,6 +91,21 @@ q-imgen generate "poster concept" --channel yunwu-gpt-image --aspect-ratio 1:1 -
 q-imgen batch tasks.json -o ./output --delay 1.0
 ```
 
+OpenAI Images size reference for agents:
+
+| Size | Use |
+|---|---|
+| `1024x1024` | square |
+| `1536x1024` | landscape |
+| `1024x1536` | portrait |
+| `2048x2048` | 2K square |
+| `2048x1152` | 2K landscape |
+| `3840x2160` | 4K landscape |
+| `2160x3840` | 4K portrait |
+| `auto` | provider default |
+
+Strict OpenAI Images size rules: max edge <= 3840px; both dimensions must be multiples of 16px; long edge / short edge <= 3:1; total pixels must be between 655360 and 8294400.
+
 ## Output contract
 
 - **`generate` / `batch` stdout**: one JSON object per call (parseable by agents)

@@ -90,6 +90,7 @@ def _classify_error(message: str) -> tuple[str, bool]:
     if (
         "reference image not found" in lowered
         or "unsupported image type" in lowered
+        or "invalid image_size" in lowered
         or "missing required field" in lowered
         or "unknown parameter" in lowered
         or "must be a string" in lowered
