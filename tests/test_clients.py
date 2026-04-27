@@ -469,6 +469,36 @@ class OpenAIImagesGenerateTests(unittest.TestCase):
         payload = json.loads(req.data.decode())
         self.assertEqual(payload["size"], "1536x1024")
 
+    def test_image_size_shortcuts_expand_to_explicit_pixels(self):
+        fake_body = json.dumps({"data": []}).encode()
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return fake_body
+
+        with (
+            patch(
+                "q_imgen.openai_images_client.urllib.request.urlopen",
+                return_value=FakeResponse(),
+            ) as urlopen_mock,
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaises(OpenAIImagesError),
+        ):
+            openai_images_client.generate(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2-all",
+                aspect_ratio="3:4",
+                image_size="2K",
+                output_dir=tmp,
+            )
+
+        req = urlopen_mock.call_args.args[0]
+        payload = json.loads(req.data.decode())
+        self.assertEqual(payload["size"], "1536x2048")
+
     def test_http_error_sanitizes_api_key_and_does_not_retry_4xx(self):
         http_error = urllib.error.HTTPError(
             url="https://yunwu.ai/v1/images/generations",

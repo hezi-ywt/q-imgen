@@ -136,6 +136,7 @@ q-imgen generate "poster concept" --channel yunwu-gpt-image --image-size 1024x15
 ```
 
 For `openai_images`, `--image` becomes `input_images`; `--image-size` is sent as the Images API `size` field. `--quality`, `--background`, `--output-format`, and `--num-images` are passed through only when set.
+For `openai_images`, size shortcuts are normalized before the request: `--aspect-ratio 1:1 --image-size 2K` sends `size: "2048x2048"`; `--aspect-ratio 3:4 --image-size 2K` sends `size: "1536x2048"`.
 
 没配渠道时,q-imgen 会自己报 `no channels configured`;这时按提示引导用户补 `channel add` 即可。
 

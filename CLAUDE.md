@@ -83,7 +83,7 @@ These are tested and must not regress:
 1. OpenAI: `image_size=None` is **omitted** from payload, not serialized as null
 2. OpenAI: HTTP errors sanitize api_key before raising `OpenAIError`
 3. OpenAI: 3-shape parallel scan with dedup, not first-wins
-4. OpenAI Images: calls `/images/generations`, maps `--image` to `input_images`, handles b64/URL responses, and forwards Images-specific params only when set
+4. OpenAI Images: calls `/images/generations`, maps `--image` to `input_images`, normalizes shortcuts like `2K` to explicit pixel sizes, handles b64/URL responses, and forwards Images-specific params only when set
 5. Gemini: `googleapis.com` → `?key=` auth, others → `Bearer` auth
 6. Gemini: 4xx (except 429) = no retry; 429/5xx = retry
 7. Channels: `channels.json` always chmod 600

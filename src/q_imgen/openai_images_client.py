@@ -36,13 +36,46 @@ _ASPECT_RATIO_TO_SIZE = {
     "16:9": "1792x1024",
 }
 
+_SIZE_SHORTCUT_TO_LONG_EDGE = {
+    "512": 512,
+    "1K": 1024,
+    "2K": 2048,
+    "4K": 4096,
+}
+
 
 class OpenAIImagesError(Exception):
     """User-visible error from the OpenAI Images path."""
 
 
+def _size_from_shortcut(shortcut: str, aspect_ratio: str) -> str | None:
+    long_edge = _SIZE_SHORTCUT_TO_LONG_EDGE.get(shortcut.strip().upper())
+    if long_edge is None:
+        return None
+
+    try:
+        width_ratio, height_ratio = [
+            int(part) for part in aspect_ratio.strip().split(":", 1)
+        ]
+    except ValueError:
+        return f"{long_edge}x{long_edge}"
+
+    if width_ratio <= 0 or height_ratio <= 0:
+        return f"{long_edge}x{long_edge}"
+    if width_ratio >= height_ratio:
+        width = long_edge
+        height = round(long_edge * height_ratio / width_ratio)
+    else:
+        width = round(long_edge * width_ratio / height_ratio)
+        height = long_edge
+    return f"{width}x{height}"
+
+
 def _size_for(*, aspect_ratio: str, image_size: str | None) -> str:
     if image_size:
+        shortcut_size = _size_from_shortcut(image_size, aspect_ratio)
+        if shortcut_size:
+            return shortcut_size
         return image_size
     return _ASPECT_RATIO_TO_SIZE.get(aspect_ratio.strip(), "1024x1536")
 

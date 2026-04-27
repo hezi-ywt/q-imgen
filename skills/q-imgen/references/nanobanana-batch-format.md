@@ -15,6 +15,8 @@
 | `output_format` | — | `openai_images` only; passed to Images API `output_format` |
 | `num_images` | — | `openai_images` only; passed to Images API `n` |
 
+For `openai_images`, `image_size` shortcuts are normalized before the request. Example: `aspect_ratio: "1:1", image_size: "2K"` sends `size: "2048x2048"`; `aspect_ratio: "3:4", image_size: "2K"` sends `size: "1536x2048"`.
+
 ## 示例
 
 ```json

@@ -84,6 +84,9 @@ q-imgen generate "merge A's hair with B's style" --image a.png --image b.png
 q-imgen generate "poster concept" --channel yunwu-gpt-image \
   --image-size 1024x1536 --quality high --background transparent --output-format webp --num-images 2
 
+# 2K shortcut expands to explicit pixels for openai_images (1:1 -> 2048x2048)
+q-imgen generate "poster concept" --channel yunwu-gpt-image --aspect-ratio 1:1 --image-size 2K
+
 # 批量生成
 q-imgen batch tasks.json -o ./output --delay 1.0
 ```
