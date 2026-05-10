@@ -8,6 +8,7 @@ Focus on behavior that breaks the agent output contract when it regresses:
 """
 
 import base64
+import http.client
 import io
 import json
 import sys
@@ -17,11 +18,14 @@ import urllib.error
 from pathlib import Path
 from unittest.mock import patch
 
+from PIL import Image
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from q_imgen import gemini_client, openai_client
+from q_imgen import gemini_client, openai_client, openai_images_client
 from q_imgen.gemini_client import GeminiError
 from q_imgen.openai_client import OpenAIError, _encode_image_data_url
+from q_imgen.openai_images_client import OpenAIImagesError
 
 
 _PNG_1X1 = base64.b64decode(
@@ -347,6 +351,302 @@ class OpenAIGenerateTests(unittest.TestCase):
         message = str(ctx.exception)
         self.assertIn("401", message)
         self.assertNotIn("sk-supersecretkey12345", message)
+
+
+# ============================================================
+# openai_images_client
+# ============================================================
+
+
+class OpenAIImagesGenerateTests(unittest.TestCase):
+    def test_generate_uses_images_endpoint_and_saves_b64_json(self):
+        real_b64 = base64.b64encode(_PNG_1X1).decode()
+        fake_body = json.dumps(
+            {"data": [{"b64_json": f"data:image/webp;base64,{real_b64}"}]}
+        ).encode()
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return fake_body
+
+        with (
+            patch(
+                "q_imgen.openai_images_client.urllib.request.urlopen",
+                return_value=FakeResponse(),
+            ) as urlopen_mock,
+            tempfile.TemporaryDirectory() as tmp,
+        ):
+            ref = Path(tmp) / "ref.png"
+            ref.write_bytes(_PNG_1X1)
+            saved = openai_images_client.generate(
+                prompt="vertical comic page",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2",
+                reference_images=[ref],
+                aspect_ratio="2:3",
+                quality="high",
+                background="transparent",
+                output_format="webp",
+                num_images=2,
+                output_dir=tmp,
+                prefix="gpt",
+            )
+
+        self.assertEqual(len(saved), 1)
+        self.assertTrue(saved[0].endswith(".webp"))
+        req = urlopen_mock.call_args.args[0]
+        payload = json.loads(req.data.decode())
+        self.assertEqual(req.full_url, "https://yunwu.ai/v1/images/generations")
+        self.assertEqual(req.headers["Authorization"], "Bearer sk-test")
+        self.assertEqual(payload["model"], "gpt-image-2")
+        self.assertEqual(payload["prompt"], "vertical comic page")
+        self.assertEqual(payload["size"], "1024x1536")
+        self.assertNotIn("response_format", payload)
+        self.assertEqual(payload["quality"], "high")
+        self.assertEqual(payload["background"], "transparent")
+        self.assertEqual(payload["output_format"], "webp")
+        self.assertEqual(payload["n"], 2)
+        self.assertEqual(len(payload["input_images"]), 1)
+        self.assertTrue(payload["input_images"][0].startswith("data:image/png;base64,"))
+
+    def test_output_format_sets_extension_for_raw_b64_json(self):
+        real_b64 = base64.b64encode(_PNG_1X1).decode()
+        fake_body = json.dumps({"data": [{"b64_json": real_b64}]}).encode()
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return fake_body
+
+        with (
+            patch(
+                "q_imgen.openai_images_client.urllib.request.urlopen",
+                return_value=FakeResponse(),
+            ),
+            tempfile.TemporaryDirectory() as tmp,
+        ):
+            saved = openai_images_client.generate(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2",
+                output_format="webp",
+                output_dir=tmp,
+            )
+
+        self.assertEqual(len(saved), 1)
+        self.assertTrue(saved[0].endswith(".webp"))
+
+    def test_image_size_overrides_aspect_ratio_mapping(self):
+        fake_body = json.dumps({"data": []}).encode()
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return fake_body
+
+        with (
+            patch(
+                "q_imgen.openai_images_client.urllib.request.urlopen",
+                return_value=FakeResponse(),
+            ) as urlopen_mock,
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaises(OpenAIImagesError),
+        ):
+            openai_images_client.generate(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2",
+                aspect_ratio="1:1",
+                image_size="1536x1024",
+                output_dir=tmp,
+            )
+
+        req = urlopen_mock.call_args.args[0]
+        payload = json.loads(req.data.decode())
+        self.assertEqual(payload["size"], "1536x1024")
+
+    def test_image_size_shortcuts_expand_to_explicit_pixels(self):
+        fake_body = json.dumps({"data": []}).encode()
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return fake_body
+
+        with (
+            patch(
+                "q_imgen.openai_images_client.urllib.request.urlopen",
+                return_value=FakeResponse(),
+            ) as urlopen_mock,
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaises(OpenAIImagesError),
+        ):
+            openai_images_client.generate(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2-all",
+                aspect_ratio="3:4",
+                image_size="2K",
+                output_dir=tmp,
+            )
+
+        req = urlopen_mock.call_args.args[0]
+        payload = json.loads(req.data.decode())
+        self.assertEqual(payload["size"], "1536x2048")
+
+    def test_4k_shortcut_expands_within_openai_images_limits(self):
+        fake_body = json.dumps({"data": []}).encode()
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return fake_body
+
+        with (
+            patch(
+                "q_imgen.openai_images_client.urllib.request.urlopen",
+                return_value=FakeResponse(),
+            ) as urlopen_mock,
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaises(OpenAIImagesError),
+        ):
+            openai_images_client.generate(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2-all",
+                aspect_ratio="16:9",
+                image_size="4K",
+                output_dir=tmp,
+            )
+
+        req = urlopen_mock.call_args.args[0]
+        payload = json.loads(req.data.decode())
+        self.assertEqual(payload["size"], "3840x2160")
+
+    def test_auto_image_size_is_sent_as_auto(self):
+        real_b64 = base64.b64encode(_PNG_1X1).decode()
+        fake_body = json.dumps({"data": [{"b64_json": real_b64}]}).encode()
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return fake_body
+
+        with (
+            patch(
+                "q_imgen.openai_images_client.urllib.request.urlopen",
+                return_value=FakeResponse(),
+            ) as urlopen_mock,
+            tempfile.TemporaryDirectory() as tmp,
+        ):
+            openai_images_client.generate(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2-all",
+                image_size="auto",
+                output_dir=tmp,
+            )
+
+        req = urlopen_mock.call_args.args[0]
+        payload = json.loads(req.data.decode())
+        self.assertEqual(payload["size"], "auto")
+
+    def test_invalid_image_size_is_rejected_before_request(self):
+        with (
+            patch("q_imgen.openai_images_client.urllib.request.urlopen") as urlopen_mock,
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaises(OpenAIImagesError) as ctx,
+        ):
+            openai_images_client.generate(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2-all",
+                image_size="4096x2160",
+                output_dir=tmp,
+            )
+
+        urlopen_mock.assert_not_called()
+        self.assertIn("exceeds max edge", str(ctx.exception))
+
+    def test_http_error_sanitizes_api_key_and_does_not_retry_4xx(self):
+        http_error = urllib.error.HTTPError(
+            url="https://yunwu.ai/v1/images/generations",
+            code=401,
+            msg="Unauthorized",
+            hdrs=None,  # type: ignore[arg-type]
+            fp=io.BytesIO(b'{"error":"invalid key sk-supersecretkey12345"}'),
+        )
+
+        with (
+            patch(
+                "q_imgen.openai_images_client.urllib.request.urlopen",
+                side_effect=http_error,
+            ) as urlopen_mock,
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaises(OpenAIImagesError) as ctx,
+        ):
+            openai_images_client.generate(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-supersecretkey12345",
+                model="gpt-image-2",
+                output_dir=tmp,
+            )
+
+        self.assertEqual(urlopen_mock.call_count, 1)
+        self.assertIn("401", str(ctx.exception))
+        self.assertNotIn("sk-supersecretkey12345", str(ctx.exception))
+
+    def test_remote_disconnect_is_wrapped_as_openai_images_error(self):
+        with (
+            patch(
+                "q_imgen.openai_images_client.urllib.request.urlopen",
+                side_effect=http.client.RemoteDisconnected("closed"),
+            ),
+            tempfile.TemporaryDirectory() as tmp,
+            self.assertRaises(OpenAIImagesError) as ctx,
+        ):
+            openai_images_client.generate(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2",
+                output_dir=tmp,
+                max_retries=0,
+            )
+
+        self.assertIn("remote closed connection", str(ctx.exception))
+
+    def test_generate_images_returns_pil_images(self):
+        real_b64 = base64.b64encode(_PNG_1X1).decode()
+        fake_body = json.dumps({"data": [{"b64_json": real_b64}]}).encode()
+
+        class FakeResponse:
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+            def read(self): return fake_body
+
+        with patch(
+            "q_imgen.openai_images_client.urllib.request.urlopen",
+            return_value=FakeResponse(),
+        ):
+            images = openai_images_client.generate_images(
+                prompt="cat",
+                base_url="https://yunwu.ai/v1",
+                api_key="sk-test",
+                model="gpt-image-2",
+            )
+
+        self.assertEqual(len(images), 1)
+        self.assertIsInstance(images[0], Image.Image)
 
 
 # ============================================================

@@ -1,5 +1,13 @@
 # User-Facing Output
 
+## Agent Notes
+
+- For machine flows, prefer structured stdout over scraping text.
+- Use `q-imgen status --json` for local limiter state.
+- On failed `generate` / per-task `batch` results, prefer `error_code` and `retryable`.
+- On `batch`, read top-level `failed`, `retryable_failures`, `failed_task_indexes`, and `error_counts` before iterating `results`.
+- Keep output directories pure: image files only. History, limiter state, and diagnostics live outside `-o/--output-dir`.
+
 q-imgen 的 stdout 是机器侧 JSON。用户看到的应该是**压缩过、可视的 markdown 消息**,不是原始对象。
 
 ## 默认模板(单次成功)

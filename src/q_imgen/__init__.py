@@ -20,6 +20,7 @@ from .api import generate
 from .channels import Channel, ChannelError
 from .gemini_client import GeminiError
 from .openai_client import OpenAIError
+from .openai_images_client import OpenAIImagesError
 
 __all__ = [
     "__version__",
@@ -28,4 +29,5 @@ __all__ = [
     "ChannelError",
     "GeminiError",
     "OpenAIError",
+    "OpenAIImagesError",
 ]

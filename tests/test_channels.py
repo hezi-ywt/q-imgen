@@ -101,6 +101,17 @@ class ChannelStoreTests(unittest.TestCase):
                 model="m",
             )
 
+    def test_add_accepts_openai_images_protocol(self):
+        store = ChannelStore.load()
+        channel = store.add(
+            "img",
+            protocol="openai_images",
+            base_url="https://yunwu.ai/v1",
+            api_key="sk-test",
+            model="gpt-image-2",
+        )
+        self.assertEqual(channel.protocol, "openai_images")
+
     def test_add_rejects_empty_required_fields(self):
         store = ChannelStore.load()
         with self.assertRaises(ChannelError):

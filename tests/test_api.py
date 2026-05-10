@@ -25,6 +25,7 @@ from q_imgen.api import generate
 from q_imgen.channels import Channel, ChannelError, ChannelStore
 from q_imgen.gemini_client import GeminiError
 from q_imgen.openai_client import OpenAIError
+from q_imgen.openai_images_client import OpenAIImagesError
 
 _PNG_1X1 = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4"
@@ -57,6 +58,10 @@ def _openai_response_body() -> bytes:
             }
         }]
     }).encode()
+
+
+def _openai_images_response_body() -> bytes:
+    return json.dumps({"data": [{"b64_json": _PNG_B64}]}).encode()
 
 
 def _gemini_response_body() -> bytes:
@@ -185,6 +190,64 @@ class GenerateGeminiTests(unittest.TestCase):
 
         with self.assertRaises(GeminiError):
             generate("a cat", channel="test-ch")
+
+
+class GenerateOpenAIImagesTests(unittest.TestCase):
+    """Test generate() dispatching to OpenAI Images protocol."""
+
+    @patch("q_imgen.openai_images_client.urllib.request.urlopen")
+    @patch("q_imgen.api.ChannelStore.load")
+    def test_returns_pil_images(self, mock_load, mock_urlopen):
+        mock_load.return_value = _make_store("openai_images")
+        mock_urlopen.return_value = FakeHTTPResponse(_openai_images_response_body())
+
+        result = generate("a cat", channel="test-ch", aspect_ratio="2:3")
+
+        self.assertIsInstance(result, list)
+        self.assertEqual(len(result), 1)
+        self.assertIsInstance(result[0], Image.Image)
+        req = mock_urlopen.call_args.args[0]
+        payload = json.loads(req.data)
+        self.assertEqual(req.full_url, "https://example.com/v1/images/generations")
+        self.assertEqual(payload["size"], "1024x1536")
+
+    @patch("q_imgen.openai_images_client.urllib.request.urlopen")
+    @patch("q_imgen.api.ChannelStore.load")
+    def test_accepts_pil_image_as_reference(self, mock_load, mock_urlopen):
+        mock_load.return_value = _make_store("openai_images")
+        mock_urlopen.return_value = FakeHTTPResponse(_openai_images_response_body())
+
+        ref_img = Image.new("RGB", (64, 64), color="red")
+        result = generate("edit this", images=[ref_img], channel="test-ch")
+
+        self.assertEqual(len(result), 1)
+        req = mock_urlopen.call_args.args[0]
+        payload = json.loads(req.data)
+        self.assertEqual(len(payload["input_images"]), 1)
+
+    @patch("q_imgen.openai_images_client.urllib.request.urlopen")
+    @patch("q_imgen.api.ChannelStore.load")
+    def test_forwards_openai_images_options(self, mock_load, mock_urlopen):
+        mock_load.return_value = _make_store("openai_images")
+        mock_urlopen.return_value = FakeHTTPResponse(_openai_images_response_body())
+
+        generate(
+            "a poster",
+            channel="test-ch",
+            image_size="1536x1024",
+            quality="high",
+            background="transparent",
+            output_format="webp",
+            num_images=2,
+        )
+
+        req = mock_urlopen.call_args.args[0]
+        payload = json.loads(req.data)
+        self.assertEqual(payload["size"], "1536x1024")
+        self.assertEqual(payload["quality"], "high")
+        self.assertEqual(payload["background"], "transparent")
+        self.assertEqual(payload["output_format"], "webp")
+        self.assertEqual(payload["n"], 2)
 
 
 class GenerateParamsTests(unittest.TestCase):

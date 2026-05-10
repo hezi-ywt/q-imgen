@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
-from q_imgen import channels, cli, history
+from q_imgen import channels, cli, history, limiter
 from q_imgen.channels import Channel, ChannelStore
 
 
@@ -28,12 +28,15 @@ class CliGenerateTests(unittest.TestCase):
         # Always isolate history writes to a tmp dir — tests must never touch
         # the real ~/.q-imgen/history/.
         self.history_patch = patch.object(history, "HISTORY_DIR", self.history_dir)
+        self.state_patch = patch.object(limiter, "STATE_DB", Path(self.tmp.name) / "state.db")
         self.dir_patch.start()
         self.file_patch.start()
         self.history_patch.start()
+        self.state_patch.start()
         self.addCleanup(self.dir_patch.stop)
         self.addCleanup(self.file_patch.stop)
         self.addCleanup(self.history_patch.stop)
+        self.addCleanup(self.state_patch.stop)
 
         # Seed one of each protocol so every dispatch path is covered.
         store = ChannelStore.load()
@@ -50,6 +53,13 @@ class CliGenerateTests(unittest.TestCase):
             base_url="https://generativelanguage.googleapis.com/v1beta",
             api_key="AIza-secret-12345",
             model="gemini-3.1-flash-image-preview",
+        )
+        store.add(
+            "openai-images-a",
+            protocol="openai_images",
+            base_url="https://yunwu.ai/v1",
+            api_key="sk-images-123456",
+            model="gpt-image-2",
         )
         store.set_default("openai-a")
         store.save()
@@ -123,6 +133,46 @@ class CliGenerateTests(unittest.TestCase):
         payload = json.loads(out)
         self.assertEqual(payload["channel"], "gemini-a")
 
+    def test_generate_dispatches_to_openai_images_client(self):
+        with patch(
+            "q_imgen.cli.openai_images_client.generate",
+            return_value=[str(self.out_dir / "img_000.webp")],
+        ) as gen_mock:
+            code, out, err = self._run(
+                [
+                    "generate",
+                    "cat",
+                    "--channel",
+                    "openai-images-a",
+                    "--aspect-ratio",
+                    "2:3",
+                    "--quality",
+                    "high",
+                    "--background",
+                    "transparent",
+                    "--output-format",
+                    "webp",
+                    "--num-images",
+                    "2",
+                    "-o",
+                    str(self.out_dir),
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        kwargs = gen_mock.call_args.kwargs
+        self.assertEqual(kwargs["base_url"], "https://yunwu.ai/v1")
+        self.assertEqual(kwargs["api_key"], "sk-images-123456")
+        self.assertEqual(kwargs["model"], "gpt-image-2")
+        self.assertEqual(kwargs["aspect_ratio"], "2:3")
+        self.assertEqual(kwargs["quality"], "high")
+        self.assertEqual(kwargs["background"], "transparent")
+        self.assertEqual(kwargs["output_format"], "webp")
+        self.assertEqual(kwargs["num_images"], 2)
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "ok")
+        self.assertEqual(payload["channel"], "openai-images-a")
+
     # ---- generate: errors hit stderr with [q-imgen] prefix ----
 
     def test_generate_unknown_channel_goes_to_stderr(self):
@@ -149,6 +199,8 @@ class CliGenerateTests(unittest.TestCase):
         payload = json.loads(out)
         self.assertEqual(payload["status"], "error")
         self.assertIn("401", payload["error"])
+        self.assertEqual(payload["error_code"], "auth_error")
+        self.assertFalse(payload["retryable"])
 
     def test_generate_model_override_passes_to_client(self):
         with patch(
@@ -202,7 +254,7 @@ class CliGenerateTests(unittest.TestCase):
                 "add",
                 "new-one",
                 "--protocol",
-                "openai",
+                "openai_images",
                 "--base-url",
                 "https://new.example/v1",
                 "--api-key",
@@ -214,6 +266,7 @@ class CliGenerateTests(unittest.TestCase):
         self.assertEqual(code, 0)
         store = ChannelStore.load()
         self.assertIn("new-one", store.channels)
+        self.assertEqual(store.channels["new-one"].protocol, "openai_images")
 
     def test_channel_add_duplicate_fails_without_force(self):
         code, _, err = self._run(
@@ -248,12 +301,15 @@ class CliBatchTests(unittest.TestCase):
             channels, "CHANNELS_FILE", config_dir / "channels.json"
         )
         self.history_patch = patch.object(history, "HISTORY_DIR", self.history_dir)
+        self.state_patch = patch.object(limiter, "STATE_DB", Path(self.tmp.name) / "state.db")
         self.dir_patch.start()
         self.file_patch.start()
         self.history_patch.start()
+        self.state_patch.start()
         self.addCleanup(self.dir_patch.stop)
         self.addCleanup(self.file_patch.stop)
         self.addCleanup(self.history_patch.stop)
+        self.addCleanup(self.state_patch.stop)
 
         store = ChannelStore.load()
         store.add(
@@ -262,6 +318,13 @@ class CliBatchTests(unittest.TestCase):
             base_url="https://openai.example/v1",
             api_key="sk-openai-123456",
             model="m0",
+        )
+        store.add(
+            "openai-images-a",
+            protocol="openai_images",
+            base_url="https://yunwu.ai/v1",
+            api_key="sk-images-123456",
+            model="gpt-image-2",
         )
         store.save()
 
@@ -308,6 +371,72 @@ class CliBatchTests(unittest.TestCase):
         # Second task overrides aspect_ratio per-task.
         self.assertEqual(call_kwargs[1]["aspect_ratio"], "1:1")
 
+    def test_batch_forwards_openai_images_defaults_and_task_overrides(self):
+        task_file = Path(self.tmp.name) / "tasks.json"
+        task_file.write_text(
+            json.dumps(
+                [
+                    {"prompt": "cat"},
+                    {
+                        "prompt": "dog",
+                        "image_size": "1536x1024",
+                        "quality": "medium",
+                        "background": "opaque",
+                        "output_format": "png",
+                        "num_images": 1,
+                    },
+                ]
+            )
+        )
+
+        call_kwargs = []
+
+        def fake_generate(**kwargs):
+            call_kwargs.append(kwargs)
+            return [str(self.out_dir / f"fake_{len(call_kwargs):03d}.png")]
+
+        with (
+            patch("q_imgen.cli.openai_images_client.generate", side_effect=fake_generate),
+            patch("sys.stdout", new=io.StringIO()) as out,
+            patch("sys.stderr", new=io.StringIO()),
+            patch("q_imgen.cli.time.sleep"),
+        ):
+            code = cli.main(
+                [
+                    "batch",
+                    str(task_file),
+                    "--channel",
+                    "openai-images-a",
+                    "--image-size",
+                    "1024x1536",
+                    "--quality",
+                    "high",
+                    "--background",
+                    "transparent",
+                    "--output-format",
+                    "webp",
+                    "--num-images",
+                    "2",
+                    "-o",
+                    str(self.out_dir),
+                    "--delay",
+                    "0",
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(out.getvalue())["status"], "ok")
+        self.assertEqual(call_kwargs[0]["image_size"], "1024x1536")
+        self.assertEqual(call_kwargs[0]["quality"], "high")
+        self.assertEqual(call_kwargs[0]["background"], "transparent")
+        self.assertEqual(call_kwargs[0]["output_format"], "webp")
+        self.assertEqual(call_kwargs[0]["num_images"], 2)
+        self.assertEqual(call_kwargs[1]["image_size"], "1536x1024")
+        self.assertEqual(call_kwargs[1]["quality"], "medium")
+        self.assertEqual(call_kwargs[1]["background"], "opaque")
+        self.assertEqual(call_kwargs[1]["output_format"], "png")
+        self.assertEqual(call_kwargs[1]["num_images"], 1)
+
     def test_batch_partial_failure_returns_exit_0_with_status_partial(self):
         task_file = Path(self.tmp.name) / "tasks.json"
         task_file.write_text(json.dumps([{"prompt": "ok"}, {"prompt": "fail"}]))
@@ -337,6 +466,56 @@ class CliBatchTests(unittest.TestCase):
         self.assertEqual(payload["status"], "partial")
         self.assertEqual(payload["ok"], 1)
         self.assertEqual(payload["total"], 2)
+        self.assertEqual(payload["failed"], 1)
+        self.assertEqual(payload["retryable_failures"], 0)
+        self.assertEqual(payload["failed_task_indexes"], [1])
+        self.assertEqual(payload["error_counts"], {"unknown_error": 1})
+
+    def test_batch_summary_counts_retryable_and_error_codes(self):
+        task_file = Path(self.tmp.name) / "tasks.json"
+        task_file.write_text(
+            json.dumps(
+                [
+                    {"prompt": "ok"},
+                    {"prompt": "rate limited"},
+                    {"prompt": "unauthorized"},
+                ]
+            )
+        )
+
+        from q_imgen.openai_client import OpenAIError
+
+        calls = {"n": 0}
+
+        def fake_generate(**kwargs):
+            calls["n"] += 1
+            if calls["n"] == 2:
+                raise OpenAIError("HTTP 429: Too Many Requests")
+            if calls["n"] == 3:
+                raise OpenAIError("HTTP 401: Unauthorized")
+            return [str(self.out_dir / "good.png")]
+
+        with (
+            patch("q_imgen.cli.openai_client.generate", side_effect=fake_generate),
+            patch("sys.stdout", new=io.StringIO()) as out,
+            patch("sys.stderr", new=io.StringIO()),
+            patch("q_imgen.cli.time.sleep"),
+        ):
+            code = cli.main(
+                ["batch", str(task_file), "-o", str(self.out_dir), "--delay", "0"]
+            )
+
+        self.assertEqual(code, 0)
+        payload = json.loads(out.getvalue())
+        self.assertEqual(payload["status"], "partial")
+        self.assertEqual(payload["ok"], 1)
+        self.assertEqual(payload["failed"], 2)
+        self.assertEqual(payload["retryable_failures"], 1)
+        self.assertEqual(payload["failed_task_indexes"], [1, 2])
+        self.assertEqual(
+            payload["error_counts"],
+            {"rate_limit": 1, "auth_error": 1},
+        )
 
     def test_batch_missing_task_file_error_contract(self):
         with (
@@ -409,12 +588,15 @@ class CliHistoryIntegrationTests(unittest.TestCase):
             channels, "CHANNELS_FILE", config_dir / "channels.json"
         )
         self.history_patch = patch.object(history, "HISTORY_DIR", self.history_dir)
+        self.state_patch = patch.object(limiter, "STATE_DB", Path(self.tmp.name) / "state.db")
         self.dir_patch.start()
         self.file_patch.start()
         self.history_patch.start()
+        self.state_patch.start()
         self.addCleanup(self.dir_patch.stop)
         self.addCleanup(self.file_patch.stop)
         self.addCleanup(self.history_patch.stop)
+        self.addCleanup(self.state_patch.stop)
 
         store = ChannelStore.load()
         store.add(
@@ -544,6 +726,235 @@ class CliHistoryIntegrationTests(unittest.TestCase):
         self.assertIn(today, printed)
         self.assertTrue(printed.endswith(".jsonl"))
         self.assertIn(str(self.history_dir), printed)
+
+
+class CliLimiterStatusTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        config_dir = Path(self.tmp.name) / "config"
+        self.out_dir = Path(self.tmp.name) / "out"
+        self.history_dir = Path(self.tmp.name) / "history"
+        self.dir_patch = patch.object(channels, "CONFIG_DIR", config_dir)
+        self.file_patch = patch.object(
+            channels, "CHANNELS_FILE", config_dir / "channels.json"
+        )
+        self.history_patch = patch.object(history, "HISTORY_DIR", self.history_dir)
+        self.state_patch = patch.object(limiter, "STATE_DB", Path(self.tmp.name) / "state.db")
+        self.dir_patch.start()
+        self.file_patch.start()
+        self.history_patch.start()
+        self.state_patch.start()
+        self.addCleanup(self.dir_patch.stop)
+        self.addCleanup(self.file_patch.stop)
+        self.addCleanup(self.history_patch.stop)
+        self.addCleanup(self.state_patch.stop)
+
+        store = ChannelStore.load()
+        store.add(
+            "openai-a",
+            protocol="openai",
+            base_url="https://openai.example/v1",
+            api_key="sk-shared-123456",
+            model="m0",
+        )
+        store.save()
+
+    def _run(self, argv: list[str]) -> tuple[int, str, str]:
+        with (
+            patch("sys.stdout", new=io.StringIO()) as out,
+            patch("sys.stderr", new=io.StringIO()) as err,
+        ):
+            code = cli.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_status_prints_empty_state_when_no_local_leases(self):
+        code, out, err = self._run(["status"])
+        self.assertEqual(code, 0)
+        self.assertIn("no local limiter activity", out)
+        self.assertEqual(err, "")
+
+    def test_status_json_reports_running_lease(self):
+        db_path = Path(self.tmp.name) / "state.db"
+        state_patch = patch.object(limiter, "STATE_DB", db_path)
+        state_patch.start()
+        self.addCleanup(state_patch.stop)
+
+        lease = limiter.acquire(
+            api_key="sk-shared-123456",
+            channel="openai-a",
+            prompt="a shrine cat with lanterns",
+            poll_interval=0.01,
+            heartbeat_interval=0.1,
+            stale_after_seconds=60,
+        )
+        lease.__enter__()
+        self.addCleanup(lambda: lease.__exit__(None, None, None))
+
+        code, out, err = self._run(["status", "--json"])
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertEqual(len(payload), 1)
+        self.assertEqual(payload[0]["running"], 1)
+        self.assertEqual(payload[0]["waiting"], 0)
+        self.assertEqual(payload[0]["leases"][0]["channel"], "openai-a")
+        self.assertEqual(err, "")
+
+    def test_generate_success_releases_limiter_slot(self):
+        with patch(
+            "q_imgen.cli.openai_client.generate",
+            return_value=[str(self.out_dir / "img_000.png")],
+        ):
+            code, out, err = self._run(["generate", "cat", "-o", str(self.out_dir)])
+
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "ok")
+
+        code, status_out, status_err = self._run(["status"])
+        self.assertEqual(code, 0)
+        self.assertIn("no local limiter activity", status_out)
+        self.assertEqual(status_err, "")
+
+    def test_generate_failure_releases_limiter_slot(self):
+        from q_imgen.openai_client import OpenAIError
+
+        with patch(
+            "q_imgen.cli.openai_client.generate",
+            side_effect=OpenAIError("boom"),
+        ):
+            code, out, err = self._run(["generate", "cat", "-o", str(self.out_dir)])
+
+        self.assertEqual(code, 1)
+        payload = json.loads(out)
+        self.assertEqual(payload["status"], "error")
+
+        code, status_out, status_err = self._run(["status"])
+        self.assertEqual(code, 0)
+        self.assertIn("no local limiter activity", status_out)
+        self.assertEqual(status_err, "")
+
+    def test_status_shows_running_lease(self):
+        db_path = Path(self.tmp.name) / "state.db"
+        state_patch = patch.object(limiter, "STATE_DB", db_path)
+        state_patch.start()
+        self.addCleanup(state_patch.stop)
+
+        lease = limiter.acquire(
+            api_key="sk-shared-123456",
+            channel="openai-a",
+            prompt="a very long prompt about a shrine cat with glowing eyes",
+            poll_interval=0.01,
+            heartbeat_interval=0.1,
+            stale_after_seconds=60,
+        )
+        self.addCleanup(lease.__exit__, None, None, None)
+        lease.__enter__()
+
+        code, out, err = self._run(["status"])
+        self.assertEqual(code, 0)
+        self.assertIn("running=1", out)
+        self.assertIn("waiting=0", out)
+        self.assertIn("openai-a", out)
+        self.assertEqual(err, "")
+
+
+class CliBenchTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        config_dir = Path(self.tmp.name) / "config"
+        self.out_dir = Path(self.tmp.name) / "out"
+        self.history_dir = Path(self.tmp.name) / "history"
+        self.source_dir = Path(self.tmp.name) / "prompts"
+        self.source_dir.mkdir(parents=True, exist_ok=True)
+        self.dir_patch = patch.object(channels, "CONFIG_DIR", config_dir)
+        self.file_patch = patch.object(
+            channels, "CHANNELS_FILE", config_dir / "channels.json"
+        )
+        self.history_patch = patch.object(history, "HISTORY_DIR", self.history_dir)
+        self.state_patch = patch.object(limiter, "STATE_DB", Path(self.tmp.name) / "state.db")
+        self.dir_patch.start()
+        self.file_patch.start()
+        self.history_patch.start()
+        self.state_patch.start()
+        self.addCleanup(self.dir_patch.stop)
+        self.addCleanup(self.file_patch.stop)
+        self.addCleanup(self.history_patch.stop)
+        self.addCleanup(self.state_patch.stop)
+
+        store = ChannelStore.load()
+        store.add(
+            "openai-a",
+            protocol="openai",
+            base_url="https://openai.example/v1",
+            api_key="sk-openai-123456",
+            model="m0",
+        )
+        store.set_default("openai-a")
+        store.save()
+
+        (self.source_dir / "alpha.md").write_text(
+            "# Alpha\nA hidden city where everyone cultivates in silence.",
+            encoding="utf-8",
+        )
+        (self.source_dir / "beta.md").write_text(
+            "# Beta\nA duel where the loser becomes the junior sister.",
+            encoding="utf-8",
+        )
+        (self.source_dir / "gamma.md").write_text(
+            "# Gamma\nBlack market bargaining with ominous talismans.",
+            encoding="utf-8",
+        )
+
+    def _run(self, argv: list[str]) -> tuple[int, str, str]:
+        with (
+            patch("sys.stdout", new=io.StringIO()) as out,
+            patch("sys.stderr", new=io.StringIO()) as err,
+        ):
+            code = cli.main(argv)
+        return code, out.getvalue(), err.getvalue()
+
+    def test_bench_runs_requested_stages_and_aggregates_results(self):
+        seen_prompts: list[str] = []
+
+        def fake_run_single(channel, **kwargs):
+            seen_prompts.append(kwargs["prompt"])
+            return {
+                "status": "ok",
+                "channel": channel.name,
+                "model": channel.model,
+                "prompt": kwargs["prompt"],
+                "ref_images": [],
+                "images": [str(self.out_dir / f"{kwargs['prefix']}.png")],
+            }
+
+        with patch("q_imgen.cli._run_single", side_effect=fake_run_single):
+            code, out, err = self._run(
+                [
+                    "bench",
+                    str(self.source_dir),
+                    "--channel",
+                    "openai-a",
+                    "--concurrency",
+                    "2",
+                    "--concurrency",
+                    "3",
+                    "--status-interval",
+                    "0.001",
+                    "-o",
+                    str(self.out_dir),
+                ]
+            )
+
+        self.assertEqual(code, 0)
+        payload = json.loads(out)
+        self.assertEqual([s["concurrency"] for s in payload["stages"]], [2, 3])
+        self.assertEqual(payload["stages"][0]["ok"], 2)
+        self.assertEqual(payload["stages"][1]["ok"], 3)
+        self.assertEqual(len(seen_prompts), 5)
+        self.assertTrue(any("Alpha" in prompt for prompt in seen_prompts))
+        self.assertEqual(err, "")
 
 
 if __name__ == "__main__":

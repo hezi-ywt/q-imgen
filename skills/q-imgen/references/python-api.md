@@ -25,6 +25,10 @@ def generate(
     channel: str | None = None,
     aspect_ratio: str = "3:4",
     image_size: str | None = None,
+    quality: str | None = None,
+    background: str | None = None,
+    output_format: str | None = None,
+    num_images: int | None = None,
     timeout: float = 300,
     max_retries: int = 3,
 ) -> list[PIL.Image.Image]:
@@ -39,6 +43,27 @@ def generate(
 | `channel` | `str` | `None` | 渠道名称，`None` 使用默认渠道 |
 | `aspect_ratio` | `str` | `"3:4"` | 宽高比 |
 | `image_size` | `str` | `None` | 尺寸提示：`"512"` / `"1K"` / `"2K"` / `"4K"`，`None` 不传 |
+| `quality` | `str` | `None` | `openai_images` only; passed to Images API `quality` |
+| `background` | `str` | `None` | `openai_images` only; passed to Images API `background` |
+| `output_format` | `str` | `None` | `openai_images` only; passed to Images API `output_format` |
+| `num_images` | `int` | `None` | `openai_images` only; passed to Images API `n` |
+
+For `openai_images`, `image_size` shortcuts are normalized before the request. Example: `aspect_ratio="1:1", image_size="2K"` sends `size: "2048x2048"`; `aspect_ratio="3:4", image_size="2K"` sends `size: "1536x2048"`.
+
+OpenAI Images recommended sizes for agents:
+
+| `image_size` | Use |
+|---|---|
+| `1024x1024` | square / 正方形 |
+| `1536x1024` | landscape / 横版 |
+| `1024x1536` | portrait / 竖版 |
+| `2048x2048` | 2K square / 2K 正方形 |
+| `2048x1152` | 2K landscape / 2K 横版 |
+| `3840x2160` | 4K landscape / 4K 横版 |
+| `2160x3840` | 4K portrait / 4K 竖版 |
+| `auto` | provider default / 默认 |
+
+Strict OpenAI Images size rules: max edge <= 3840px; width and height must both be multiples of 16px; long edge / short edge <= 3:1; total pixels must be between 655360 and 8294400.
 | `timeout` | `float` | `300` | API 超时秒数 |
 | `max_retries` | `int` | `3` | 429/5xx 重试次数 |
 
@@ -51,11 +76,12 @@ def generate(
 | `ChannelError` | 渠道不存在或未配置 |
 | `GeminiError` | Gemini 协议调用失败 |
 | `OpenAIError` | OpenAI 协议调用失败 |
+| `OpenAIImagesError` | OpenAI Images 协议调用失败 |
 
 异常类都可以从顶层导入：
 
 ```python
-from q_imgen import generate, ChannelError, GeminiError, OpenAIError
+from q_imgen import generate, ChannelError, GeminiError, OpenAIError, OpenAIImagesError
 ```
 
 ## 与 CLI 的区别
@@ -155,12 +181,12 @@ for char in characters:
 ### 错误处理
 
 ```python
-from q_imgen import generate, ChannelError, OpenAIError, GeminiError
+from q_imgen import generate, ChannelError, OpenAIError, GeminiError, OpenAIImagesError
 
 try:
     images = generate("prompt", channel="my-proxy")
 except ChannelError as e:
     print(f"渠道问题: {e}")
-except (OpenAIError, GeminiError) as e:
+except (OpenAIError, GeminiError, OpenAIImagesError) as e:
     print(f"生成失败: {e}")
 ```

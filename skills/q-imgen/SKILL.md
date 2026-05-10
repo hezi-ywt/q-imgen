@@ -2,6 +2,7 @@
 name: q-imgen
 description: >
   Google Nano Banana / Gemini 生图 CLI。用于文生图、图生图、图像编辑、多图融合、角色一致性、批量出图、渠道切换、历史查询。用户提到 nanobanana / banana / 大香蕉 / Gemini 生图 / q-imgen / q-imagen / 图生图 / 多图融合 / 参考图 / 角色一致性 时必须使用。
+  Also covers OpenAI Images channels for Yunwu gpt-image-2 / gpt-image-2-all via q-imgen protocol `openai_images`.
 metadata:
   requires:
     bins: ["q-imgen"]
@@ -14,17 +15,31 @@ metadata:
 
 ## 核心定位
 
-- q-imgen 只负责 **generate / batch / channel / history** 这几件事
+- q-imgen 只负责 **generate / batch / channel / history / status** 这几件事
 - q-imgen **不负责** prompt 优化、启发式路由、工作流编排、角色设定管理
 - q-imgen 的 stdout 是**机器侧 JSON**,你负责把它整理成用户能看的消息
 
-**每次在本轮里第一次进入 q-imgen skill 时,必须先读** [references/user-notes.md](references/user-notes.md)。用户要求检查更新或你发现版本可能过旧时,按 [references/update-check.md](references/update-check.md) 操作 —— **注意更新流程必须保护 `user-notes.md` 不被远端覆盖**(它是本地记忆层,每个用户不一样)。那里是这个 skill 的记忆层:用户偏好、项目偏好、真实踩坑和已有工作流,优先级高于你自己的临场猜测。任务做完后,如果这次新增了稳定偏好、有效经验或新坑,要**及时回写**进去,不要拖到以后。
+## Agent 调用约定
+
+- agent 需要本机限流状态时,优先用 `q-imgen status --json`;人类排查时再用文本版 `q-imgen status`
+- `generate` 和 `batch` 的失败 JSON 现在都有稳定字段:
+  - `error_code`: `auth_error` / `rate_limit` / `provider_busy` / `invalid_model` / `invalid_request` / `network_error` / `no_image_returned` / `local_limiter_error` / `unknown_error`
+  - `retryable`: `true` 表示可以稍后重试、降并发、换 channel 再试; `false` 表示先修配置或输入
+- `batch` 顶层除了 `results` 之外,还会给 agent 可直接消费的 summary:
+  - `failed`
+  - `retryable_failures`
+  - `failed_task_indexes`
+  - `error_counts`
+- **输出目录纯洁性** 是硬约束: `-o/--output-dir` 下只放图片; history / limiter / status / 诊断信息都不写进输出目录
+- agent 默认优先看结构化字段,不要靠字符串模糊匹配错误原因,也不要假设输出目录里会有 sidecar JSON
+
+**每次在本轮里第一次进入 q-imgen skill 时,必须先读** [references/user-notes.md](references/user-notes.md)。用户要求检查更新或你发现版本可能过旧时,按 [references/update-check.md](references/update-check.md) 操作。那里是这个 skill 的记忆层:用户偏好、项目偏好、真实踩坑和已有工作流,优先级高于你自己的临场猜测。任务做完后,如果这次新增了稳定偏好、有效经验或新坑,要**及时回写**进去,不要拖到以后。
 
 ## 首次使用
 
 在执行任何生图命令前,先跑 `q-imgen channel list`。如果输出为空（没有配置任何渠道）,**主动引导用户完成首次配置**:
 
-1. 告诉用户需要一个 API 渠道才能使用,需要提供: `base_url`、`api_key`、`protocol`（gemini 或 openai）、`model`
+1. 告诉用户需要一个 API 渠道才能使用,需要提供: `base_url`、`api_key`、`protocol`（gemini、openai 或 openai_images）、`model`
 2. 用户提供信息后,执行:
 
 ```bash
@@ -99,7 +114,49 @@ q-imgen channel list
 q-imgen channel show
 q-imgen channel show <name>
 q-imgen generate "..." --channel google
+q-imgen status
 ```
+
+Protocol selection:
+
+- `gemini`: Gemini-native endpoint, `POST {base_url}/models/{model}:generateContent`.
+- `openai`: OpenAI-compatible chat endpoint, `POST {base_url}/chat/completions`.
+- `openai_images`: OpenAI Images endpoint, `POST {base_url}/images/generations`. Use this for Yunwu `gpt-image-2` / `gpt-image-2-all`.
+
+Yunwu `gpt-image-2` channel example:
+
+```bash
+q-imgen channel add yunwu-gpt-image --protocol openai_images --base-url https://yunwu.ai/v1 --api-key <key> --model gpt-image-2
+```
+
+OpenAI Images-specific generation controls:
+
+```bash
+q-imgen generate "poster concept" --channel yunwu-gpt-image --image-size 1024x1536 --quality high --background transparent --output-format webp --num-images 2
+```
+
+For `openai_images`, `--image` becomes `input_images`; `--image-size` is sent as the Images API `size` field. `--quality`, `--background`, `--output-format`, and `--num-images` are passed through only when set.
+For `openai_images`, size shortcuts are normalized before the request: `--aspect-ratio 1:1 --image-size 2K` sends `size: "2048x2048"`; `--aspect-ratio 3:4 --image-size 2K` sends `size: "1536x2048"`.
+
+OpenAI Images size reference for agents:
+
+| Size | Use |
+|---|---|
+| `1024x1024` | square / 正方形 |
+| `1536x1024` | landscape / 横版 |
+| `1024x1536` | portrait / 竖版 |
+| `2048x2048` | 2K square / 2K 正方形 |
+| `2048x1152` | 2K landscape / 2K 横版 |
+| `3840x2160` | 4K landscape / 4K 横版 |
+| `2160x3840` | 4K portrait / 4K 竖版 |
+| `auto` | provider default / 默认 |
+
+Strict OpenAI Images size rules:
+
+- Max edge <= 3840px.
+- Width and height must both be multiples of 16px.
+- Long edge / short edge <= 3:1.
+- Total pixels must be between 655360 and 8294400.
 
 没配渠道时,q-imgen 会自己报 `no channels configured`;这时按提示引导用户补 `channel add` 即可。
 
@@ -134,6 +191,10 @@ images = generate(
     channel="my-proxy",                  # None = 默认渠道
     aspect_ratio="1:1",
     image_size="1K",
+    quality=None,
+    background=None,
+    output_format=None,
+    num_images=None,
     timeout=300,
     max_retries=3,
 )
@@ -146,7 +207,7 @@ for img in images:
 
 - **输入**: `images` 接受文件路径和 `PIL.Image` 对象混合,脚本可以先用 Pillow 做预处理再传入
 - **输出**: 返回 `list[PIL.Image.Image]`,不保存文件、不写 history、不打印 — 纯函数,脚本自己决定怎么处理结果
-- **错误**: 失败抛异常（`ChannelError` / `GeminiError` / `OpenAIError`）,不返回 status dict
+- **错误**: 失败抛异常（`ChannelError` / `GeminiError` / `OpenAIError` / `OpenAIImagesError`）,不返回 status dict
 - **渠道**: 复用 CLI 的 channel 配置（`~/.q-imgen/channels.json`）,不用在脚本里写 base_url/api_key
 
 典型场景: 角色 × 场景的批量生图、golden anchor 风格对齐、带条件分支的生图流程。这些逻辑由脚本自己控制,q-imgen 只负责单次生成这个原子操作。

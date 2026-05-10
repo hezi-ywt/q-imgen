@@ -48,6 +48,10 @@ def generate(
     channel: str | None = None,
     aspect_ratio: str = "3:4",
     image_size: str | None = None,
+    quality: str | None = None,
+    background: str | None = None,
+    output_format: str | None = None,
+    num_images: int | None = None,
     timeout: float = _TIMEOUT_SECONDS,
     max_retries: int = _MAX_RETRIES,
 ) -> list[Image.Image]:
@@ -59,6 +63,10 @@ def generate(
         channel: Channel name. ``None`` uses the configured default.
         aspect_ratio: Aspect ratio string (e.g. ``"1:1"``, ``"3:4"``).
         image_size: Size hint (``"512"``, ``"1K"``, ``"2K"``, ``"4K"``).
+        quality: OpenAI Images quality option.
+        background: OpenAI Images background option.
+        output_format: OpenAI Images output format option.
+        num_images: OpenAI Images ``n`` option.
         timeout: Seconds to wait for the API response (default 300).
         max_retries: Retry count on 429/5xx (default 3).
 
@@ -101,6 +109,25 @@ def generate(
             reference_images=prepared,
             aspect_ratio=aspect_ratio,
             image_size=image_size,
+            timeout=timeout,
+            max_retries=max_retries,
+        )
+
+    elif ch.protocol == "openai_images":
+        from . import openai_images_client
+
+        return openai_images_client.generate_images(
+            prompt=prompt,
+            base_url=ch.base_url,
+            api_key=ch.api_key,
+            model=ch.model,
+            reference_images=prepared,
+            aspect_ratio=aspect_ratio,
+            image_size=image_size,
+            quality=quality,
+            background=background,
+            output_format=output_format,
+            num_images=num_images,
             timeout=timeout,
             max_retries=max_retries,
         )
